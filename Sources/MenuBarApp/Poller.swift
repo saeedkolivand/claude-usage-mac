@@ -159,6 +159,7 @@ final class Poller: ObservableObject {
                 userAgent: userAgent, force: force, warn: warn, critical: critical,
                 label: labelled ? profile.displayName : nil)
         }
+        bundle.lendUsageBetweenSameAccountProfiles()
         bundle.updatedAt = Date()
 
         snapshot = activeProfile.flatMap { bundle.profiles[$0.id] }

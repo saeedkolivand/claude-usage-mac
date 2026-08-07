@@ -89,8 +89,26 @@ except the one authenticated GET above.
 Claude Code names that Keychain item after the config dir it was authenticated
 from: `Claude Code-credentials` for the default `~/.claude`, and
 `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for anything
-relocated with `CLAUDE_CONFIG_DIR`. We match on the service name alone — the
-account differs between Claude Code versions.
+relocated with `CLAUDE_CONFIG_DIR`. Each service name is tried pinned to account
+`claude-code-user` first and unpinned second, because the account name differs
+between Claude Code versions.
+
+An expired credential never hides a live one behind it: a leftover
+`.credentials.json`, or a dead Keychain item sharing a service name with a
+current one, is remembered but stepped over, and only reported if every other
+candidate misses.
+
+Claude Code only refreshes the config dir it is actually running in, so a profile
+you have stopped using parks on a dead token — and, until it is refreshed, on
+whatever numbers it last managed to fetch. Because the usage endpoint is
+account-scoped rather than config-dir-scoped, such a profile shows the rings of
+another profile signed in to the same account (same email *and* organization) if
+one is present. Failing that it says "Token expired — use Claude Code in this
+profile to refresh", which is the only thing that actually refreshes it.
+
+A profile with no token at all keeps saying so rather than borrowing: that is
+also what a denied Keychain prompt looks like, and it is worth fixing rather than
+hiding.
 
 macOS asks once per item for permission to read it. "Always Allow" stops it
 asking again.
