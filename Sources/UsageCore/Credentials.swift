@@ -14,15 +14,37 @@ public enum CredentialStore {
 
     static let keychainBase = "Claude Code-credentials"
 
-    /// File first, Keychain second.
+    /// File first, Keychain second — but an expired credential never wins over a
+    /// live one behind it.
+    ///
+    /// The file branch used to return unconditionally, so a `.credentials.json`
+    /// left behind from before Claude Code moved to the Keychain pinned that
+    /// profile to `token-expired` for good: the live Keychain item was never
+    /// reached. Same shape one level down, where the first service name that
+    /// matched won even if the item under it was dead.
+    ///
+    /// ponytail: a profile whose credentials really have all expired now walks
+    /// every candidate on each poll instead of stopping at the first. It only
+    /// costs anything when something is already broken, and a `security` miss
+    /// exits immediately without a dialog.
     public static func read(for profile: Profile) -> Credentials {
-        if let fromFile = readFile(at: profile.credentialsFile), fromFile.token != nil {
-            return fromFile
+        var expiredFallback: Credentials?
+
+        // Remembering the first expired candidate keeps the banner saying
+        // "expired", which is true and actionable. Falling through to `.none`
+        // would say "Sign in with Claude Code" at someone who already is.
+        func usable(_ candidate: Credentials?) -> Credentials? {
+            guard let candidate, candidate.token != nil else { return nil }
+            if !candidate.expired { return candidate }
+            if expiredFallback == nil { expiredFallback = candidate }
+            return nil
         }
+
+        if let live = usable(readFile(at: profile.credentialsFile)) { return live }
         for service in keychainServices(for: profile) {
-            if let creds = readKeychain(service: service) { return creds }
+            if let live = usable(readKeychain(service: service)) { return live }
         }
-        return .none
+        return expiredFallback ?? .none
     }
 
     /// Keychain service names to try for a profile, most likely first.
@@ -68,11 +90,13 @@ public enum CredentialStore {
     static func readKeychain(service: String, timeout: TimeInterval = 60) -> Credentials? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        // Service only, no `-a`. Claude Code writes the account as
-        // `claude-code-user`, but items written by older versions use something
-        // else, and pinning the account broke the default profile in 0.3.7 — it
-        // is the oldest item on most machines. The service name is already the
-        // per-profile key, so matching on it alone is specific enough.
+        // Service only, no `-a`, and do not be tempted back. 85b3af6 read
+        // `claude-code-user` out of the Claude Code binary and pinned it; on a
+        // real three-profile machine every item's account is the macOS short
+        // username instead, so the pin matched nothing and 0.3.7 shipped a
+        // default profile that could not find its own token. The service name is
+        // the per-profile key and is specific enough alone — that same machine
+        // had exactly one item per config dir, no duplicates to disambiguate.
         //
         // ponytail: a value over 2400B is stored chunked across `<account>#0`,
         // `#1`, … and this would return one base64 chunk, which `parse` rejects

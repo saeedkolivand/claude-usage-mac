@@ -59,6 +59,15 @@ final class RenderSnapshotTests: XCTestCase {
                 return scoped
             }()),
             ("no-token", Snapshot(usage: nil, error: "no-token")),
+            // A profile Claude Code no longer runs in: the cached payload is
+            // still on screen, and its five-hour window has already elapsed, so
+            // the ring reads "resets 0m" under the banner.
+            ("token-expired", Snapshot(usage: .init(
+                fiveHour: UsageNode(utilization: 2,
+                                    resetsAt: Date().addingTimeInterval(-3600)),
+                sevenDay: UsageNode(utilization: 9,
+                                    resetsAt: Date().addingTimeInterval(3 * 86400 + 9 * 3600))),
+                error: "token-expired", stale: true)),
             ("stale", Snapshot(usage: .init(
                 fiveHour: UsageNode(utilization: 42, resetsAt: nil), sevenDay: nil),
                 error: "network", stale: true)),

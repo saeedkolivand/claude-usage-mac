@@ -48,7 +48,9 @@ extension Snapshot {
         switch error {
         case nil:               return nil
         case "no-token":        return "Sign in with Claude Code"
-        case "token-expired":   return "Token expired — Claude Code will refresh it"
+        // Not "Claude Code will refresh it": it only refreshes the profile it is
+        // running in, so on an idle config dir that promise never comes true.
+        case "token-expired":   return "Token expired — use Claude Code in this profile to refresh"
         case "network":         return "No connection"
         case "bad-json":        return "Unexpected response"
         case let code?:

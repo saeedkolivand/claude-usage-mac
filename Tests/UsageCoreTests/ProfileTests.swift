@@ -203,6 +203,27 @@ final class ProfileCredentialsTests: XCTestCase {
         XCTAssertFalse(creds.expired)
     }
 
+    /// An expired file must not be mistaken for being signed out, and must not
+    /// swallow the search either — the Keychain candidates behind it still get
+    /// tried, and only when they all miss does the expired one come back.
+    func testExpiredCredentialsFileReportsExpiredRatherThanSignedOut() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("creds-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let past = (Date().timeIntervalSince1970 - 3600) * 1000
+        try JSONSerialization
+            .data(withJSONObject: ["claudeAiOauth": ["accessToken": "stale", "expiresAt": past]])
+            .write(to: dir.appendingPathComponent(".credentials.json"))
+
+        // Non-default and outside the home directory, so its hashed service
+        // names own no Keychain item and the fallback is the only way out.
+        let creds = CredentialStore.read(for: profile(dir, isDefault: false))
+        XCTAssertEqual(creds.token, "stale")
+        XCTAssertTrue(creds.expired)
+    }
+
     func testNonDefaultProfileNeverReadsTheDefaultsKeychainItem() {
         // A relocated profile must never fall back to the bare service name:
         // that would show another account's percentages under this profile's
@@ -280,5 +301,91 @@ final class ProfileHistoryTests: XCTestCase {
 
     func testSlugIsReadable() {
         XCTAssertEqual(History.slug("/Users/saeed/.claude-work"), "users-saeed-claude-work")
+    }
+}
+
+/// Claude Code only refreshes the config dir it runs in, so a profile you have
+/// stopped using parks on a dead token and hours-old rings. The usage endpoint
+/// is account-scoped, so a live sibling on the same account has the real numbers.
+final class SnapshotBundleLendingTests: XCTestCase {
+
+    private func profile(_ name: String, email: String?, organization: String?) -> Profile {
+        Profile(configDir: URL(fileURLWithPath: "/Users/tester/\(name)"),
+                isDefault: name == ".claude", email: email, organization: organization)
+    }
+
+    private var liveSnapshot: Snapshot {
+        Snapshot(usage: UsageData(
+            fiveHour: UsageNode(utilization: 2, resetsAt: Date().addingTimeInterval(4 * 3600)),
+            sevenDay: UsageNode(utilization: 9, resetsAt: Date().addingTimeInterval(3 * 86400))))
+    }
+
+    /// What the screenshots showed: a frozen payload whose five-hour window has
+    /// already elapsed, so the ring renders "resets 0m".
+    private var expiredSnapshot: Snapshot {
+        Snapshot(usage: UsageData(
+            fiveHour: UsageNode(utilization: 2, resetsAt: Date().addingTimeInterval(-3600)),
+            sevenDay: nil),
+            error: "token-expired", stale: true)
+    }
+
+    private func bundle(_ entries: [(Profile, Snapshot)]) -> SnapshotBundle {
+        var built = SnapshotBundle(profileList: entries.map(\.0))
+        for (profile, snapshot) in entries { built.profiles[profile.id] = snapshot }
+        return built
+    }
+
+    func testExpiredProfileTakesTheRingsOfASameAccountSibling() throws {
+        let dead = profile(".claude", email: "me@corp.com", organization: "Corp")
+        let alive = profile(".claude-intellij", email: "me@corp.com", organization: "Corp")
+        var subject = bundle([(dead, expiredSnapshot), (alive, liveSnapshot)])
+
+        subject.lendUsageBetweenSameAccountProfiles()
+
+        let healed = try XCTUnwrap(subject.profiles[dead.id])
+        let donor = try XCTUnwrap(subject.profiles[alive.id])
+        XCTAssertNil(healed.error)
+        XCTAssertFalse(healed.stale)
+        XCTAssertEqual(healed.sessionResetsAt, donor.sessionResetsAt)
+        XCTAssertEqual(healed.weeklyResetsAt, donor.weeklyResetsAt)
+        XCTAssertEqual(healed.weeklyPct, 9)
+        // A future reset is the whole point: this is what stops "resets 0m".
+        XCTAssertGreaterThan(try XCTUnwrap(healed.sessionResetsAt), Date())
+    }
+
+    func testADifferentAccountNeverLendsItsNumbers() throws {
+        let dead = profile(".claude", email: "me@corp.com", organization: "Corp")
+        let other = profile(".claude-ruby", email: "me@corp.com", organization: "Other Org")
+        var subject = bundle([(dead, expiredSnapshot), (other, liveSnapshot)])
+
+        subject.lendUsageBetweenSameAccountProfiles()
+
+        XCTAssertEqual(subject.profiles[dead.id]?.error, "token-expired")
+        XCTAssertLessThan(try XCTUnwrap(subject.profiles[dead.id]?.sessionResetsAt), Date())
+    }
+
+    /// An unidentified profile must not inherit an identity by proximity.
+    func testAProfileWithNoAccountOnDiskBorrowsNothing() {
+        let dead = profile(".claude", email: nil, organization: nil)
+        let alive = profile(".claude-intellij", email: nil, organization: nil)
+        var subject = bundle([(dead, expiredSnapshot), (alive, liveSnapshot)])
+
+        subject.lendUsageBetweenSameAccountProfiles()
+
+        XCTAssertEqual(subject.profiles[dead.id]?.error, "token-expired")
+    }
+
+    /// "no-token" is also what a denied Keychain prompt looks like. Hiding it
+    /// behind a sibling's numbers would bury something the user can fix.
+    func testSignedOutProfileIsLeftSayingSo() {
+        let out = profile(".claude", email: "me@corp.com", organization: "Corp")
+        let alive = profile(".claude-intellij", email: "me@corp.com", organization: "Corp")
+        var subject = bundle([(out, Snapshot(usage: nil, error: "no-token")),
+                              (alive, liveSnapshot)])
+
+        subject.lendUsageBetweenSameAccountProfiles()
+
+        XCTAssertEqual(subject.profiles[out.id]?.error, "no-token")
+        XCTAssertNil(subject.profiles[out.id]?.sessionPct)
     }
 }
