@@ -50,9 +50,11 @@ reason.
 
 On 0.3.9? Its auto-update swapped the app bundle without re-registering the
 widget extension, so placed widgets froze on the render they happened to be
-showing and newly added ones sat on a grey placeholder. Run `killall chronod`;
-if a widget still won't populate, remove it and drag out a fresh one. 0.4
-re-registers as part of the install, so this is a one-time repair.
+showing and newly added ones sat on a grey placeholder. 0.4.0 fixes that, but
+0.4.0 is *installed by 0.3.9's updater* — so it breaks the widget one last time
+on the way in. After it lands, run `killall chronod`, and remove and re-add any
+widget that still won't populate. Updates from 0.4.0 onward re-register as part
+of the install and need none of this.
 
 Builds are ad-hoc signed, not notarized, so macOS quarantines them. The cask
 clears that for you; if you install the DMG by hand, run:
