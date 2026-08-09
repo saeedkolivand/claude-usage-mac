@@ -188,6 +188,7 @@ struct UsageWidgetView: View {
                 stat("TODAY", snapshot.stats.todayTokens, snapshot.stats.todayCost)
                 stat("WEEK", snapshot.stats.weekTokens, snapshot.stats.weekCost)
                 staleMark(snapshot)
+                age(snapshot)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -218,6 +219,7 @@ struct UsageWidgetView: View {
                 HistoryChart(days: Array(snapshot.stats.days.suffix(14)), height: 30)
             }
             staleMark(snapshot)
+            age(snapshot)
         }
     }
 
@@ -256,6 +258,26 @@ struct UsageWidgetView: View {
             .font(.system(size: 9))
             .foregroundStyle(Level.warn.tint)
         }
+    }
+
+    /// How old these numbers are.
+    ///
+    /// `Text(_:style:)` keeps counting inside an already-rendered widget with no
+    /// timeline reload, so this is the one thing on the face that stays true when
+    /// everything around it has frozen. Without it, 0.3.9's dead widget spent two
+    /// days showing confident percentages and a countdown stopped mid-air, with
+    /// nothing on screen to say so.
+    private func age(_ snapshot: Snapshot) -> some View {
+        // Two views, not one concatenated Text: only a Text that *is* the date
+        // is guaranteed to keep ticking on its own.
+        HStack(spacing: 3) {
+            Text("updated")
+            Text(snapshot.updatedAt, style: .relative)
+                .monospacedDigit()
+        }
+        .font(.system(size: 9))
+        .foregroundStyle(.tertiary)
+        .lineLimit(1)
     }
 
     private var empty: some View {

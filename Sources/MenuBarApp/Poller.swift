@@ -32,6 +32,10 @@ final class Poller: ObservableObject {
     /// account and the sandboxed widget cannot fetch anything itself.
     private var monitors: [String: ProfileMonitor] = [:]
 
+    /// What the widget was last told about, so an unchanged poll doesn't spend a
+    /// reload from WidgetKit's budget.
+    private var lastPublished: SnapshotBundle?
+
     /// What the menu bar itself shows. Deliberately text-only: menu bar items
     /// are rendered as template images, so a coloured dot would come out grey.
     /// The bang is the one signal that survives monochrome.
@@ -167,7 +171,10 @@ final class Poller: ObservableObject {
         // Kept alongside the bundle so a widget built before per-widget scoping
         // still finds what it expects.
         snapshot?.write()
-        WidgetCenter.shared.reloadAllTimelines()
+        if bundle.draws(differentlyFrom: lastPublished) {
+            lastPublished = bundle
+            WidgetCenter.shared.reloadAllTimelines()
+        }
 
         guard autoCheckUpdates else { return }
         // Rate-limited internally to four times a day, so calling it every poll

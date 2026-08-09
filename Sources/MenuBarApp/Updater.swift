@@ -67,6 +67,26 @@ enum Updater {
         }.value
         _ = try FileManager.default.replaceItemAt(bundle, withItemAt: staged)
 
+        // The appex inside was swapped underneath its registration. Ad-hoc
+        // signing means the extension's identity *is* its cdhash, so every build
+        // is a new one and chronod can no longer launch the widget it has on
+        // file: placed widgets freeze on their last render, and a fresh one
+        // never gets past its placeholder. 0.3.9 shipped that way. build.sh
+        // dodges it by rm -rf'ing first; an atomic replace has to say so out
+        // loud. Both `try?` — a failed re-registration must not abort an
+        // otherwise-good update, and killall exits non-zero on no match.
+        // Detached for the same reason the staging above is: these block, and
+        // the menu bar must not.
+        await Task.detached(priority: .userInitiated) {
+            try? run("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+                     + "LaunchServices.framework/Support/lsregister", ["-f", bundle.path])
+            // ponytail: restarting the widget host is the blunt version of what
+            // re-adding a widget does by hand. launchd brings it straight back.
+            // If it ever proves too heavy, drop it and document the manual
+            // remove-and-re-add instead.
+            try? run("/usr/bin/killall", ["chronod"])
+        }.value
+
         progress("Restarting…")
         await relaunch(bundle)
     }
