@@ -48,6 +48,12 @@ that change — it refuses the timeline request rather than rendering. Widgets
 configured under 0.3.0 or 0.3.1 need their profile picked again for the same
 reason.
 
+On 0.3.9? Its auto-update swapped the app bundle without re-registering the
+widget extension, so placed widgets froze on the render they happened to be
+showing and newly added ones sat on a grey placeholder. Run `killall chronod`;
+if a widget still won't populate, remove it and drag out a fresh one. 0.4
+re-registers as part of the install, so this is a one-time repair.
+
 Builds are ad-hoc signed, not notarized, so macOS quarantines them. The cask
 clears that for you; if you install the DMG by hand, run:
 

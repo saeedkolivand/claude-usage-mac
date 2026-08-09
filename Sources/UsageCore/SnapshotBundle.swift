@@ -76,6 +76,34 @@ public struct SnapshotBundle: Codable, Sendable, Equatable {
         }
     }
 
+    /// Whether anything the widget actually draws has moved.
+    ///
+    /// `updatedAt` is stamped `Date()` on every poll whether or not a fetch
+    /// succeeded, so a plain `!=` is always true — and reloading on that is the
+    /// 1440 requests a day that put us over WidgetKit's reload budget. Reloads
+    /// from a containing app are only budget-exempt while it is foreground, and
+    /// an `LSUIElement` menu bar app never is.
+    ///
+    /// ponytail: an active session still moves the numbers most minutes, so this
+    /// buys back the idle hours rather than capping the busy ones. If the budget
+    /// still bites, floor it to one reload every five minutes — measured, not
+    /// guessed.
+    public func draws(differentlyFrom other: SnapshotBundle?) -> Bool {
+        guard let other else { return true }
+        return undated() != other.undated()
+    }
+
+    private func undated() -> SnapshotBundle {
+        var copy = self
+        copy.updatedAt = .distantPast
+        copy.profiles = copy.profiles.mapValues {
+            var snapshot = $0
+            snapshot.updatedAt = .distantPast
+            return snapshot
+        }
+        return copy
+    }
+
     /// Exactly the named profile, or nil.
     ///
     /// Deliberately does not fall back: a widget configured for one account and

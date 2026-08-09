@@ -388,4 +388,44 @@ final class SnapshotBundleLendingTests: XCTestCase {
         XCTAssertEqual(subject.profiles[out.id]?.error, "no-token")
         XCTAssertNil(subject.profiles[out.id]?.sessionPct)
     }
+
+    // MARK: - Reload gating
+
+    /// Every poll restamps `updatedAt` whether or not a fetch succeeded, so
+    /// reloading on inequality alone asked WidgetKit for 1440 reloads a day
+    /// against a budget of a few dozen — and got throttled for it.
+    func testAPollThatOnlyRestampedTheClockAsksForNoReload() {
+        let only = profile(".claude", email: "me@corp.com", organization: "Corp")
+        let before = bundle([(only, liveSnapshot)])
+
+        var after = before
+        after.updatedAt = before.updatedAt.addingTimeInterval(60)
+        after.profiles = after.profiles.mapValues {
+            var snapshot = $0
+            snapshot.updatedAt = $0.updatedAt.addingTimeInterval(60)
+            return snapshot
+        }
+
+        XCTAssertFalse(after.draws(differentlyFrom: before))
+    }
+
+    func testMovedNumbersANewErrorAndAChangedProfileListAllAskForAReload() {
+        let only = profile(".claude", email: "me@corp.com", organization: "Corp")
+        let before = bundle([(only, liveSnapshot)])
+
+        var moved = before
+        moved.profiles[only.id]?.sessionPct = 3
+        XCTAssertTrue(moved.draws(differentlyFrom: before))
+
+        var failed = before
+        failed.profiles[only.id]?.error = "network"
+        XCTAssertTrue(failed.draws(differentlyFrom: before))
+
+        let added = profile(".claude-intellij", email: "me@corp.com", organization: "Corp")
+        let grown = bundle([(only, liveSnapshot), (added, liveSnapshot)])
+        XCTAssertTrue(grown.draws(differentlyFrom: before))
+
+        // First poll of a launch has nothing to compare against.
+        XCTAssertTrue(before.draws(differentlyFrom: nil))
+    }
 }
