@@ -165,7 +165,9 @@ final class Poller: ObservableObject {
     /// without touching the poll it follows. The interval is read here, on each
     /// pass, so a change is picked up without restarting anything.
     private func waitForNextPoll() async {
-        let task = Task { try? await Task.sleep(for: .seconds(refreshSeconds)) }
+        // Discarded rather than returned: `try?` on a Void call yields `Void?`,
+        // which as a closure's only expression would make this a Task<()?, Never>.
+        let task = Task { _ = try? await Task.sleep(for: .seconds(refreshSeconds)) }
         sleeper = task
         await task.value
         sleeper = nil
