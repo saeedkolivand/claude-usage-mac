@@ -105,7 +105,11 @@ final class AdditiveDecodeTests: XCTestCase {
     }
 
     func testRoundTripKeepsTheNewFields() throws {
-        var original = Snapshot(usage: UsageData(
+        // Whole seconds, for the reason the sibling test in FormatAndPayloadTests
+        // spells out: .iso8601 drops the fractional part, so a Date() default
+        // would make an exact equality assertion fail on essentially every run.
+        var original = Snapshot(updatedAt: Date(timeIntervalSince1970: 1_770_000_000),
+                                usage: UsageData(
             fiveHour: UsageNode(utilization: 42, resetsAt: nil),
             sevenDay: UsageNode(utilization: 18, resetsAt: nil),
             sevenDayOpus: UsageNode(utilization: 61, resetsAt: nil)))
@@ -130,11 +134,16 @@ final class BurnRateTests: XCTestCase {
             isDefault: false))
     }
 
+    // XCTAssert* takes a synchronous autoclosure, so every awaited value is
+    // bound first — same shape the scanner tests already use.
+
     func testNeedsTwoSamplesFarEnoughApart() async {
         let m = monitor()
-        XCTAssertNil(await m.burnRate(for: 10, now: now))
+        let first = await m.burnRate(for: 10, now: now)
+        XCTAssertNil(first)
         // A minute apart is inside the two-minute floor.
-        XCTAssertNil(await m.burnRate(for: 20, now: now.addingTimeInterval(60)))
+        let second = await m.burnRate(for: 20, now: now.addingTimeInterval(60))
+        XCTAssertNil(second)
     }
 
     func testMeasuresPointsPerHour() async {
@@ -157,7 +166,23 @@ final class BurnRateTests: XCTestCase {
     func testIdleAccountHasNoRate() async {
         let m = monitor()
         _ = await m.burnRate(for: 42, now: now)
-        XCTAssertNil(await m.burnRate(for: 42, now: now.addingTimeInterval(600)))
+        let rate = await m.burnRate(for: 42, now: now.addingTimeInterval(600))
+        XCTAssertNil(rate)
+    }
+
+    /// The samples from before a reset must not outlive it. Left in the buffer
+    /// they are measured against for a further half hour, and every slope across
+    /// the turnover is negative — so a fresh window, which is exactly when a
+    /// projection is worth having, would report nothing at all.
+    func testAResetClearsWhatCameBeforeIt() async {
+        let m = monitor()
+        _ = await m.burnRate(for: 90, now: now)
+        _ = await m.burnRate(for: 3, now: now.addingTimeInterval(300))
+        _ = await m.burnRate(for: 8, now: now.addingTimeInterval(600))
+        // Five points in five minutes, measured against the post-reset samples
+        // only. Against the pre-reset 90 it would be negative, and nil.
+        let rate = await m.burnRate(for: 13, now: now.addingTimeInterval(900))
+        XCTAssertEqual(rate, 60)
     }
 
     /// The tail after a burst is the case that matters for the widget reload
@@ -166,22 +191,27 @@ final class BurnRateTests: XCTestCase {
     func testRateStopsTheMomentUsageStops() async {
         let m = monitor()
         _ = await m.burnRate(for: 10, now: now)
-        XCTAssertNotNil(await m.burnRate(for: 40, now: now.addingTimeInterval(300)))
+        let climbing = await m.burnRate(for: 40, now: now.addingTimeInterval(300))
+        XCTAssertNotNil(climbing)
         // Same reading a minute later — still well inside the 30-minute window,
         // and the slope against the oldest sample is still steeply positive.
-        XCTAssertNil(await m.burnRate(for: 40, now: now.addingTimeInterval(360)))
-        XCTAssertNil(await m.burnRate(for: 40, now: now.addingTimeInterval(420)))
+        let flat = await m.burnRate(for: 40, now: now.addingTimeInterval(360))
+        XCTAssertNil(flat)
+        let stillFlat = await m.burnRate(for: 40, now: now.addingTimeInterval(420))
+        XCTAssertNil(stillFlat)
     }
 
     /// Under a point an hour rounds to zero, so there is nothing to say.
     func testTooSlowToMatterYieldsNoRate() async {
         let m = monitor()
         _ = await m.burnRate(for: 10, now: now)
-        XCTAssertNil(await m.burnRate(for: 10.4, now: now.addingTimeInterval(1800)))
+        let rate = await m.burnRate(for: 10.4, now: now.addingTimeInterval(1800))
+        XCTAssertNil(rate)
     }
 
     func testNoUtilizationAtAllYieldsNoRate() async {
-        XCTAssertNil(await monitor().burnRate(for: nil, now: now))
+        let rate = await monitor().burnRate(for: nil, now: now)
+        XCTAssertNil(rate)
     }
 }
 

@@ -23,10 +23,10 @@ struct GeneralSettings: View {
                         Text(interval.label).tag(interval.rawValue)
                     }
                 }
-                // Restart rather than wait: the loop is inside a sleep of the old
-                // length, so without this a change from ten minutes to one would
-                // take ten minutes to happen.
-                .onChange(of: refreshSeconds) { _, _ in poller.restart() }
+                // End the current wait rather than let it run out: it is a sleep
+                // of the old length, so without this a change from ten minutes
+                // to one would take ten minutes to happen.
+                .onChange(of: refreshSeconds) { _, _ in poller.wakeNow() }
                 Text("Every profile is polled on this schedule, and each poll is what refreshes the widgets.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

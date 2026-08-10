@@ -30,8 +30,6 @@ final class Poller: ObservableObject {
     @AppStorage(SettingsKey.warn) private var warn = 50.0
     @AppStorage(SettingsKey.critical) private var critical = 80.0
     @AppStorage(SettingsKey.userAgent) private var userAgent = UsageAPI.defaultUserAgent
-    @AppStorage(SettingsKey.menuBarMetric) private var menuBarMetric = Metric.session.rawValue
-    @AppStorage(SettingsKey.menuBarStyle) private var menuBarStyle = MenuBarStyle.percentage.rawValue
     @AppStorage(SettingsKey.selectedProfile) private var selectedProfile = ""
     @AppStorage(SettingsKey.autoCheckUpdates) private var autoCheckUpdates = true
     @AppStorage(SettingsKey.refreshInterval) private var refreshSeconds = 60
@@ -40,6 +38,8 @@ final class Poller: ObservableObject {
     @AppStorage(SettingsKey.monthlyBudget) private var monthlyBudget = 0.0
 
     private var loop: Task<Void, Never>?
+    /// Only the wait, never the poll — see wakeNow().
+    private var sleeper: Task<Void, Never>?
 
     /// One per profile, keyed by `Profile.id`. Every profile is polled, not just
     /// the selected one, because each widget can be scoped to a different
@@ -50,20 +50,23 @@ final class Poller: ObservableObject {
     /// reload from WidgetKit's budget.
     private var lastPublished: SnapshotBundle?
 
-    /// Which window the menu bar is reporting on.
-    private var menuBarChoice: Metric { Metric(rawValue: menuBarMetric) ?? .session }
-
     /// What the menu bar itself shows as text.
     ///
     /// Text is still the default form, and menu bar items are rendered as
     /// template images — so a coloured dot would come out grey and the bang is
-    /// the one severity signal that survives. The ring appearance below is the
-    /// way round that, and it is opt-in.
-    var menuBarTitle: String {
+    /// the one severity signal that survives. The ring below is the way round
+    /// that, and it is opt-in.
+    ///
+    /// The metric and style are arguments rather than `@AppStorage` here, and
+    /// that is load-bearing: `@AppStorage` on an ObservableObject does not
+    /// publish a change, so reading them from this class would leave the menu
+    /// bar showing the old choice until the next poll — up to ten minutes of a
+    /// settings control appearing to do nothing. They live on the App scene,
+    /// which SwiftUI does invalidate.
+    func menuBarTitle(metric: Metric, style: MenuBarStyle) -> String {
         guard let snapshot else { return "··" }
-        let metric = menuBarChoice
 
-        switch MenuBarStyle(rawValue: menuBarStyle) ?? .percentage {
+        switch style {
         case .percentage:
             return marked(snapshot, metric)
         case .percentageAndReset:
@@ -80,9 +83,9 @@ final class Poller: ObservableObject {
     /// Computed rather than published: the label body is re-evaluated when the
     /// snapshot changes or the setting does, and a 16-point render costs less
     /// than the plumbing to keep a cached copy in step with both.
-    var menuBarImage: NSImage? {
-        MenuBarIcon.ring(pct: snapshot?.pct(menuBarChoice),
-                         level: snapshot?.level(menuBarChoice) ?? .none)
+    func menuBarImage(metric: Metric) -> NSImage? {
+        MenuBarIcon.ring(pct: snapshot?.pct(metric),
+                         level: snapshot?.level(metric) ?? .none)
     }
 
     private func marked(_ snapshot: Snapshot, _ metric: Metric) -> String {
@@ -146,29 +149,39 @@ final class Poller: ObservableObject {
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
-                // Read fresh each time round, so a change to the interval is
-                // picked up without restarting — restart() only exists to cut
-                // short a sleep already in progress.
-                let seconds = self?.refreshSeconds ?? 60
-                try? await Task.sleep(for: .seconds(seconds))
+                await self?.waitForNextPoll()
             }
         }
     }
 
     func stop() {
+        sleeper?.cancel()
+        sleeper = nil
         loop?.cancel()
         loop = nil
     }
 
-    /// Cancels the sleep in flight and polls now.
+    /// The wait between polls, in a task of its own so it can be cut short
+    /// without touching the poll it follows. The interval is read here, on each
+    /// pass, so a change is picked up without restarting anything.
+    private func waitForNextPoll() async {
+        let task = Task { try? await Task.sleep(for: .seconds(refreshSeconds)) }
+        sleeper = task
+        await task.value
+        sleeper = nil
+    }
+
+    /// Called when the interval changes: end the current wait so the new one
+    /// starts from now. Going from ten minutes back down to one would otherwise
+    /// take ten minutes to take effect.
     ///
-    /// Without this, going from ten minutes back down to one would take ten
-    /// minutes to take effect — the loop would still be inside the old sleep.
-    /// The refresh that follows is nearly free: the API cache serves anything
-    /// under a minute old.
-    func restart() {
-        stop()
-        start()
+    /// Deliberately not stop() plus start(). Cancelling the loop cancels a poll
+    /// that may be in flight, and cancellation reaches URLSession — which comes
+    /// back as URLError(.cancelled), which UsageAPI cannot tell from a real
+    /// network failure. Changing a setting would have put "No connection" on the
+    /// popover and "no update" on every widget.
+    func wakeNow() {
+        sleeper?.cancel()
     }
 
     func refreshNow() {
@@ -306,9 +319,20 @@ final class Poller: ObservableObject {
         }
     }
 
+    /// Keyed by profile as well as period. The budget itself is one global
+    /// setting, but the spend it is measured against is per account — so an
+    /// unqualified key means whichever profile crosses first silences every
+    /// other one for the rest of the day. Clearing the latch on a profile switch
+    /// would be worse: it re-arms an account that has already been told, and the
+    /// picker is one click.
+    private func budgetKey(_ budget: String) -> String {
+        "\(selectedProfile)/\(budget)"
+    }
+
     private func announce(budget: String, period: Date, title: String, body: String) {
-        guard budgetNotified[budget] != period else { return }
-        budgetNotified[budget] = period
+        let key = budgetKey(budget)
+        guard budgetNotified[key] != period else { return }
+        budgetNotified[key] = period
         Task { await Notifier.shared.post(title: title, body: body) }
     }
 

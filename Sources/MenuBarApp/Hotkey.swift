@@ -102,8 +102,8 @@ private func hotkeyFired(_ call: EventHandlerCallRef?, _ event: EventRef?,
 /// working and nothing else changes. The upgrade path is an AppKit
 /// `NSStatusItem` plus `NSPopover`, which is a rewrite of App.swift for one
 /// shortcut — worth it only if this actually breaks.
+@MainActor
 enum MenuBarPresenter {
-    @MainActor
     static func toggle() {
         for window in NSApp.windows {
             guard let root = window.contentView, let button = statusButton(in: root) else {

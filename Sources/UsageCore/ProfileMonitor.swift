@@ -60,6 +60,14 @@ public actor ProfileMonitor {
     func burnRate(for pct: Double?, now: Date = Date()) -> Double? {
         guard let pct else { return nil }
         let previous = samples.last
+
+        // A falling reading is the window turning over, and everything before it
+        // describes a window that no longer exists. Ageing those out instead of
+        // dropping them would mean measuring across the reset for a further half
+        // hour — every one of those slopes negative — so a fresh window would
+        // report nothing precisely when a projection is worth having.
+        if let previous, pct < previous.pct { samples.removeAll() }
+
         samples.append((now, pct))
         samples.removeAll { now.timeIntervalSince($0.at) > Self.burnWindow }
 
