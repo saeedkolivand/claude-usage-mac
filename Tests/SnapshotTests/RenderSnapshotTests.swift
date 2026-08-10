@@ -42,6 +42,9 @@ final class RenderSnapshotTests: XCTestCase {
 
         return [
             ("typical", .preview),
+            // The majority plan: no Opus or Sonnet windows, no measured burn
+            // rate. The layout has to look deliberate without them, not gappy.
+            ("plain", .previewPlain),
             ("warn", at(session: 64, weekly: 51)),
             ("critical", at(session: 97, weekly: 88)),
             ("fresh", at(session: 0, weekly: 3)),
@@ -148,6 +151,26 @@ final class RenderSnapshotTests: XCTestCase {
                     .environment(\.colorScheme, scheme)
 
                 try render(view, to: "menu-\(state.name)-\(scheme.name).png")
+            }
+        }
+    }
+
+    /// Budgets are off by default, so the rows above never appear in the states
+    /// pass. One render each for a comfortable budget and a blown one — the bar
+    /// has to be legible at both ends.
+    func testRenderMenuPopoverWithBudgets() throws {
+        let cases: [(String, Double, Double)] = [
+            ("under", 20, 500),
+            ("over", 2, 10),
+        ]
+        for (name, daily, monthly) in cases {
+            for scheme in [ColorScheme.light, .dark] {
+                let view = MenuView(snapshot: .preview, isRefreshing: false,
+                                    dailyBudget: daily, monthlyBudget: monthly)
+                    .background(scheme == .dark ? Color.black : Color.white)
+                    .environment(\.colorScheme, scheme)
+
+                try render(view, to: "menu-budget-\(name)-\(scheme.name).png")
             }
         }
     }

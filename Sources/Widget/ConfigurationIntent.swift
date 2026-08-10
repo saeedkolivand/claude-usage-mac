@@ -29,6 +29,43 @@ struct UsageConfigIntent: WidgetConfigurationIntent {
     /// shows tokens, cost and history instead of gauges.
     @Parameter(title: "Project", optionsProvider: ProjectOptions())
     var project: String?
+
+    /// How often this widget re-reads the file the app writes.
+    ///
+    /// Worth being plain about: it cannot make data arrive sooner. Only the host
+    /// app fetches, and when the app isn't running there is nothing new on disk
+    /// to find — so "Follow app" is the honest default and the rest exist for
+    /// people who want a placed widget to touch the disk less often.
+    ///
+    /// Adding a parameter is the safe kind of change to a live configuration
+    /// intent: existing selections for the two above keep decoding and this one
+    /// simply arrives nil. It was changing a parameter's *type* that silently
+    /// emptied everyone's choices in 0.3.2.
+    @Parameter(title: "Refresh", optionsProvider: RefreshOptions())
+    var refresh: String?
+}
+
+/// Fixed strings rather than an enum parameter, for the same reason the two
+/// above are Strings — see the note at the top of this file.
+struct RefreshOptions: DynamicOptionsProvider {
+    /// Zero seconds means "whatever the app is polling at". Anything below
+    /// WidgetKit's floor would be a promise the system doesn't keep, so the
+    /// shortest offered is five minutes.
+    struct Choice {
+        let label: String
+        let seconds: TimeInterval
+    }
+
+    static let choices = [
+        Choice(label: "Follow app", seconds: 0),
+        Choice(label: "5 minutes", seconds: 300),
+        Choice(label: "15 minutes", seconds: 900),
+        Choice(label: "1 hour", seconds: 3600),
+    ]
+
+    func results() async throws -> [String] {
+        Self.choices.map { $0.label }
+    }
 }
 
 /// Runs inside the widget extension, which is sandboxed and cannot enumerate

@@ -9,12 +9,70 @@ public struct LogStats: Codable, Sendable, Equatable {
     public var sessionCost: Double = 0
     /// Busiest projects over the same rolling week, most tokens first.
     public var projects: [ProjectUsage] = []
+    /// Where the week's tokens and cost went by model, most tokens first.
+    public var models: [ModelUsage] = []
     /// Daily totals, oldest first. Outlives the transcripts themselves — see History.
     public var days: [DayUsage] = []
     /// False when ~/.claude/projects is missing or unreadable.
     public var ok: Bool = true
 
     public init() {}
+}
+
+extension LogStats {
+    /// Hand-written so a missing key falls back to the property's default
+    /// instead of throwing.
+    ///
+    /// Synthesized decoding calls `decode` for every non-optional property, so a
+    /// `state.json` written before a field existed fails to decode *entirely* —
+    /// and a snapshot that won't decode is a widget showing a grey placeholder.
+    /// This project has shipped that failure twice already (0.3, then 0.3.2), so
+    /// the format is additive by construction from here on: add a property with
+    /// a default, and old files keep working.
+    ///
+    /// `CodingKeys` is spelled out rather than left to synthesis, so the manual
+    /// decoder and the synthesized encoder are provably reading the same names.
+    enum CodingKeys: String, CodingKey {
+        case todayTokens, todayCost, weekTokens, weekCost, sessionTokens, sessionCost
+        case projects, models, days, ok
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        todayTokens = try c.decodeIfPresent(Int.self, forKey: .todayTokens) ?? 0
+        todayCost = try c.decodeIfPresent(Double.self, forKey: .todayCost) ?? 0
+        weekTokens = try c.decodeIfPresent(Int.self, forKey: .weekTokens) ?? 0
+        weekCost = try c.decodeIfPresent(Double.self, forKey: .weekCost) ?? 0
+        sessionTokens = try c.decodeIfPresent(Int.self, forKey: .sessionTokens) ?? 0
+        sessionCost = try c.decodeIfPresent(Double.self, forKey: .sessionCost) ?? 0
+        projects = try c.decodeIfPresent([ProjectUsage].self, forKey: .projects) ?? []
+        models = try c.decodeIfPresent([ModelUsage].self, forKey: .models) ?? []
+        days = try c.decodeIfPresent([DayUsage].self, forKey: .days) ?? []
+        ok = try c.decodeIfPresent(Bool.self, forKey: .ok) ?? true
+    }
+}
+
+/// One model family's share of the week. Families are collapsed to what a reader
+/// recognises — Opus 4.1 and Opus 5 bill differently but share a row.
+public struct ModelUsage: Codable, Sendable, Equatable, Identifiable {
+    public var name: String
+    /// Rolling week, matching the scanner's window.
+    public var tokens: Int
+    public var cost: Double
+    public var todayTokens: Int
+    public var todayCost: Double
+
+    public var id: String { name }
+
+    public init(name: String, tokens: Int = 0, cost: Double = 0,
+                todayTokens: Int = 0, todayCost: Double = 0) {
+        self.name = name
+        self.tokens = tokens
+        self.cost = cost
+        self.todayTokens = todayTokens
+        self.todayCost = todayCost
+    }
 }
 
 public struct ProjectUsage: Codable, Sendable, Equatable, Identifiable {
@@ -89,11 +147,25 @@ extension DayUsage {
     }
 }
 
+extension ModelUsage {
+    mutating func add(_ entry: LogEntry, isToday: Bool) {
+        tokens += entry.tokens
+        cost += entry.cost
+        if isToday {
+            todayTokens += entry.tokens
+            todayCost += entry.cost
+        }
+    }
+}
+
 struct LogEntry {
     let id: String
     let timestamp: Date?
     let tokens: Int
     let cost: Double
+    /// Classified once at parse time. The scanner reads this model string over
+    /// every entry of a multi-gigabyte archive, so it is not re-derived later.
+    let family: ModelFamily
     /// From the entry's `cwd`. The directory name under ~/.claude/projects is a
     /// slug with separators and underscores both flattened to "-", so it can't be
     /// reversed into a real name; cwd is exact.
@@ -110,8 +182,10 @@ public actor TranscriptScanner {
     private static let ttl: TimeInterval = 30
     private static let window: TimeInterval = 7 * 86400
     /// How much history travels in the snapshot. More than any view shows, so the
-    /// charts can change range without a new snapshot format.
-    private static let historyDays = 30
+    /// charts can change range without a new snapshot format. Thirteen weeks plus
+    /// today is what the heatmap draws; at roughly 60 bytes a day that is about
+    /// 5 KB per profile, which the widget reads from disk once a poll.
+    private static let historyDays = 92
     /// How many projects travel in the snapshot, busiest first.
     private static let maxProjects = 20
 
@@ -180,6 +254,7 @@ public actor TranscriptScanner {
         var seenWeek = Set<String>()
         var seenSession = Set<String>()
         var byProject: [String: ProjectAccumulator] = [:]
+        var byModel: [String: ModelUsage] = [:]
         var byDay: [Date: DayUsage] = [:]
 
         for file in live {
@@ -202,6 +277,12 @@ public actor TranscriptScanner {
                     let day = calendar.startOfDay(for: ts)
                     byProject[project, default: ProjectAccumulator()]
                         .add(entry, day: day, isToday: isToday)
+                    // Inside the week claim rather than beside the today one:
+                    // today is always within the window, so this counts both
+                    // buckets off a single deduplication.
+                    let model = entry.family.label
+                    byModel[model, default: ModelUsage(name: model)]
+                        .add(entry, isToday: isToday)
                     byDay[day, default: DayUsage(day: day, tokens: 0, cost: 0)].add(entry)
                 }
                 if isToday, claim(entry.id, in: &seenToday) {
@@ -218,6 +299,7 @@ public actor TranscriptScanner {
             // their 40th-busiest directory.
             .prefix(Self.maxProjects)
             .map { $0 }
+        stats.models = byModel.values.sorted { $0.tokens > $1.tokens }
         // Only the scanned window is recomputed; older days come from the store,
         // which is why history survives Claude Code pruning its transcripts.
         history.merge(Array(byDay.values))
@@ -344,11 +426,13 @@ public actor TranscriptScanner {
             + intValue(usage["cache_creation_input_tokens"])
             + intValue(usage["cache_read_input_tokens"])
 
+        let family = Pricing.family(model)
         return LogEntry(
             id: (obj["requestId"] as? String) ?? (message["id"] as? String) ?? "",
             timestamp: parseDate(obj["timestamp"]),
             tokens: tokens,
-            cost: Pricing.cost(usage: usage, model: model),
+            cost: Pricing.cost(usage: usage, family: family),
+            family: family,
             project: projectName(obj["cwd"]))
     }
 

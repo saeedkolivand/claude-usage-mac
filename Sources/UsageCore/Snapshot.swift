@@ -11,6 +11,23 @@ public struct Snapshot: Codable, Sendable, Equatable {
     public var sessionResetsAt: Date?
     public var weeklyPct: Double?
     public var weeklyResetsAt: Date?
+    /// Per-model weekly windows, on the plans that have them. Every field added
+    /// from here on is Optional for a reason: synthesized decoding treats a
+    /// missing non-optional key as an error, so a `state.json` written by an
+    /// older build would stop decoding entirely and the widget would go grey.
+    public var opusPct: Double?
+    public var opusResetsAt: Date?
+    public var sonnetPct: Double?
+    public var sonnetResetsAt: Date?
+    /// Purchased extra usage, when the account has any.
+    public var extraUsagePct: Double?
+    /// Percentage points per hour on the five-hour window, whole points.
+    ///
+    /// Rounded at the source, not in the view: `SnapshotBundle.draws(
+    /// differentlyFrom:)` compares published bundles to decide whether to spend a
+    /// WidgetKit reload, and an unrounded rate would differ on every single poll
+    /// — which is exactly the budget problem that comparison exists to solve.
+    public var burnRatePerHour: Double?
     public var stats: LogStats
     /// Non-nil when the last refresh failed: "no-token", "token-expired",
     /// "http-401", "network", "bad-json".
@@ -40,6 +57,11 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.sessionResetsAt = usage?.fiveHour?.resetsAt
         self.weeklyPct = usage?.sevenDay?.utilization
         self.weeklyResetsAt = usage?.sevenDay?.resetsAt
+        self.opusPct = usage?.sevenDayOpus?.utilization
+        self.opusResetsAt = usage?.sevenDayOpus?.resetsAt
+        self.sonnetPct = usage?.sevenDaySonnet?.utilization
+        self.sonnetResetsAt = usage?.sevenDaySonnet?.resetsAt
+        self.extraUsagePct = usage?.extraUsage?.utilization
         self.stats = stats
         self.error = error
         self.stale = stale
@@ -47,6 +69,33 @@ public struct Snapshot: Codable, Sendable, Equatable {
 
     public var sessionLevel: Level { Level.of(sessionPct, warn: warn, critical: critical) }
     public var weeklyLevel: Level { Level.of(weeklyPct, warn: warn, critical: critical) }
+
+    /// Cost recorded since the first of this month.
+    ///
+    /// Summed from stored history rather than tracked separately — the snapshot
+    /// already carries a quarter of daily totals, so a month is always in there
+    /// and there is nothing new to persist or reset at midnight on the 1st.
+    public func monthToDateCost(now: Date = Date(), calendar: Calendar = .current) -> Double {
+        guard let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now))
+        else { return stats.todayCost }
+        return stats.days.filter { $0.day >= start }.reduce(0) { $0 + $1.cost }
+    }
+
+    /// How long until the five-hour window fills at the current burn rate.
+    ///
+    /// Nil is the ordinary answer, and deliberately so: no measured rate yet, no
+    /// room left, or — most often — the window resets before it could fill.
+    /// Announcing "full in 6h" about a window that empties in two would be worse
+    /// than saying nothing, so that case returns nil rather than a number.
+    public func timeToFull(now: Date = Date()) -> TimeInterval? {
+        guard let rate = burnRatePerHour, rate > 0,
+              let pct = sessionPct, pct < 100 else { return nil }
+        let seconds = (100 - pct) / rate * 3600
+        if let reset = sessionResetsAt, now.addingTimeInterval(seconds) >= reset {
+            return nil
+        }
+        return seconds
+    }
 }
 
 extension Snapshot {

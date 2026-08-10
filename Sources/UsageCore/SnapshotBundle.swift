@@ -14,15 +14,21 @@ public struct SnapshotBundle: Codable, Sendable, Equatable {
     /// rather than enumerating directories, which its sandbox forbids.
     public var profileList: [Profile]
     public var defaultProfileID: String?
+    /// The host's poll interval, so a widget's fallback timeline can match it
+    /// rather than guess. Optional because a bundle written by an older build has
+    /// no such key, and a bundle that fails to decode is a grey widget.
+    public var refreshSeconds: Int?
 
     public init(updatedAt: Date = Date(),
                 profiles: [String: Snapshot] = [:],
                 profileList: [Profile] = [],
-                defaultProfileID: String? = nil) {
+                defaultProfileID: String? = nil,
+                refreshSeconds: Int? = nil) {
         self.updatedAt = updatedAt
         self.profiles = profiles
         self.profileList = profileList
         self.defaultProfileID = defaultProfileID
+        self.refreshSeconds = refreshSeconds
     }
 
     /// Fills in the rings for a profile whose own token has expired, from a
@@ -66,6 +72,14 @@ public struct SnapshotBundle: Codable, Sendable, Equatable {
             lent.sessionResetsAt = source.sessionResetsAt
             lent.weeklyPct = source.weeklyPct
             lent.weeklyResetsAt = source.weeklyResetsAt
+            // Per-model windows and the burn rate are account-scoped by the same
+            // argument as the two above — the donor measured the same account.
+            lent.opusPct = source.opusPct
+            lent.opusResetsAt = source.opusResetsAt
+            lent.sonnetPct = source.sonnetPct
+            lent.sonnetResetsAt = source.sonnetResetsAt
+            lent.extraUsagePct = source.extraUsagePct
+            lent.burnRatePerHour = source.burnRatePerHour
             // The numbers are now current and correct for this account, so the
             // warning would be describing a problem the user can no longer see.
             lent.error = nil

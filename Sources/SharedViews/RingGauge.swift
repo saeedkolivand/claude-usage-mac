@@ -77,6 +77,86 @@ struct MetricGauge: View {
     }
 }
 
+/// The one bar shape in the app: a tinted capsule over its own faded track.
+/// Three views drew this separately before it was worth naming.
+struct MiniBar: View {
+    let fraction: Double
+    var tint: Color = Level.ok.tint
+    var height: CGFloat = 5
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(tint.opacity(0.18))
+                Capsule().fill(tint)
+                    .frame(width: geo.size.width * min(max(fraction, 0), 1))
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+/// A per-model weekly window as one line.
+///
+/// Not a ring: these only exist on some plans, so the layout has to survive them
+/// being absent, and two more rings would not fit the popover or any widget
+/// family below large.
+struct LimitRow: View {
+    let snapshot: Snapshot
+    let metric: Metric
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(metric.label)
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+                .frame(width: 46, alignment: .leading)
+            MiniBar(fraction: (snapshot.pct(metric) ?? 0) / 100,
+                    tint: snapshot.level(metric).tint, height: 4)
+            Text(Format.percent(snapshot.pct(metric)))
+                .font(.system(size: 10, weight: .medium))
+                .monospacedDigit()
+            Text(Format.until(snapshot.resetsAt(metric)))
+                .font(.system(size: 9))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+                .frame(width: 44, alignment: .trailing)
+        }
+        .lineLimit(1)
+    }
+}
+
+/// Spend against a target the user set. Only ever drawn when there is one — a
+/// budget row reading "$3.40 of $0" would be worse than no row.
+struct BudgetRow: View {
+    let label: String
+    let spent: Double
+    let target: Double
+    var warn: Double = 50
+    var critical: Double = 80
+
+    private var fraction: Double { target > 0 ? spent / target : 0 }
+    private var level: Level {
+        Level.of(fraction * 100, warn: warn, critical: critical)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(label)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Text("\(Format.cost(spent)) of \(Format.cost(target))")
+                    .monospacedDigit()
+            }
+            .font(.system(size: 11))
+            .lineLimit(1)
+            MiniBar(fraction: fraction, tint: level.tint, height: 4)
+        }
+    }
+}
+
 /// One "Today  1.2M  $3.40" line.
 struct StatRow: View {
     let label: String
@@ -130,21 +210,53 @@ extension Snapshot {
                          todayTokens: 140_000, todayCost: 0.40, days: recentDays(300_000)),
             ProjectUsage(name: "dotfiles", tokens: 630_000, cost: 1.80),
         ]
+        stats.models = [
+            ModelUsage(name: "Opus", tokens: 6_100_000, cost: 19.40,
+                       todayTokens: 910_000, todayCost: 2.70),
+            ModelUsage(name: "Sonnet", tokens: 2_050_000, cost: 4.30,
+                       todayTokens: 300_000, todayCost: 0.65),
+            ModelUsage(name: "Haiku", tokens: 280_000, cost: 0.40,
+                       todayTokens: 30_000, todayCost: 0.05),
+        ]
         // Uneven, with idle days, so charts get reviewed against realistic shape
-        // rather than a smooth ramp.
-        let daily = [820, 0, 1_400, 2_050, 640, 0, 0, 1_180, 3_400, 2_900, 410, 1_760, 2_240, 1_240]
+        // rather than a smooth ramp. Ninety-two days for the heatmap's quarter;
+        // the final fortnight is byte-for-byte what it was before the heatmap
+        // existed, so the bar chart's already-reviewed shape doesn't move.
+        let older = (0..<78).map {
+            [0, 310, 0, 1_900, 640, 2_400, 120, 0, 980, 1_500, 0, 2_100, 760][$0 % 13]
+        }
+        let daily = older
+            + [820, 0, 1_400, 2_050, 640, 0, 0, 1_180, 3_400, 2_900, 410, 1_760, 2_240, 1_240]
         stats.days = daily.enumerated().compactMap { offset, thousands in
             guard let day = Calendar.current.date(
                 byAdding: .day, value: offset - (daily.count - 1), to: today) else { return nil }
             return DayUsage(day: day, tokens: thousands * 1_000,
                             cost: Double(thousands) * 0.0029)
         }
-        return Snapshot(
+        var snapshot = Snapshot(
             usage: UsageData(
                 fiveHour: UsageNode(utilization: 42,
                                     resetsAt: Date().addingTimeInterval(2 * 3600 + 14 * 60)),
                 sevenDay: UsageNode(utilization: 18,
-                                    resetsAt: Date().addingTimeInterval(4 * 86400 + 6 * 3600))),
+                                    resetsAt: Date().addingTimeInterval(4 * 86400 + 6 * 3600)),
+                sevenDayOpus: UsageNode(utilization: 61,
+                                        resetsAt: Date().addingTimeInterval(4 * 86400 + 6 * 3600)),
+                sevenDaySonnet: UsageNode(utilization: 12,
+                                          resetsAt: Date().addingTimeInterval(4 * 86400 + 6 * 3600))),
             stats: stats)
+        snapshot.burnRatePerHour = 9
+        return snapshot
+    }
+
+    /// The same account on a plan with no per-model windows and no measured burn
+    /// rate — the majority case, and the one the layout has to survive.
+    static var previewPlain: Snapshot {
+        var snapshot = preview
+        snapshot.opusPct = nil
+        snapshot.opusResetsAt = nil
+        snapshot.sonnetPct = nil
+        snapshot.sonnetResetsAt = nil
+        snapshot.burnRatePerHour = nil
+        return snapshot
     }
 }

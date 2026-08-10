@@ -146,14 +146,7 @@ struct UsageWidgetView: View {
                         .font(.system(size: 11, weight: .medium))
                         .monospacedDigit()
                 }
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Level.ok.tint.opacity(0.15))
-                        Capsule().fill(Level.ok.tint)
-                            .frame(width: geo.size.width * fraction)
-                    }
-                }
-                .frame(height: 5)
+                MiniBar(fraction: fraction)
             }
             .padding(.top, 2)
         }
@@ -195,7 +188,7 @@ struct UsageWidgetView: View {
     }
 
     private func large(_ snapshot: Snapshot) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             // Expands to whatever is left after the stats, so the rings grow to
             // fill the family rather than leaving dead space above and below.
             HStack(spacing: 26) {
@@ -204,7 +197,10 @@ struct UsageWidgetView: View {
             }
             .frame(maxHeight: .infinity)
 
-            VStack(spacing: 9) {
+            burn(snapshot)
+            perModel(snapshot)
+
+            VStack(spacing: 8) {
                 StatRow(label: "Today", tokens: snapshot.stats.todayTokens,
                         cost: snapshot.stats.todayCost)
                 Divider()
@@ -215,8 +211,11 @@ struct UsageWidgetView: View {
                         cost: snapshot.stats.sessionCost)
             }
 
+            // A quarter rather than the fortnight this used to draw: the last two
+            // columns say what the bar chart said, and the eleven before them are
+            // what a desktop widget has the room to be worth placing for.
             if !snapshot.stats.days.isEmpty {
-                HistoryChart(days: Array(snapshot.stats.days.suffix(14)), height: 30)
+                Heatmap(days: Array(snapshot.stats.days.suffix(91)), box: 8)
             }
             staleMark(snapshot)
             age(snapshot)
@@ -224,6 +223,35 @@ struct UsageWidgetView: View {
     }
 
     // MARK: - Pieces
+
+    /// Only ever drawn once a rate has actually been measured, which takes a
+    /// couple of polls of active use — so most of the time this is nothing.
+    @ViewBuilder
+    private func burn(_ snapshot: Snapshot) -> some View {
+        if let summary = snapshot.burnSummary() {
+            HStack(spacing: 4) {
+                Image(systemName: "flame")
+                Text(summary)
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+    }
+
+    /// Per-model weekly windows, on the plans that have them. Absent everywhere
+    /// else, which is why nothing reserves space for it.
+    @ViewBuilder
+    private func perModel(_ snapshot: Snapshot) -> some View {
+        let limits = snapshot.perModelLimits
+        if !limits.isEmpty {
+            VStack(spacing: 5) {
+                ForEach(limits, id: \.self) { metric in
+                    LimitRow(snapshot: snapshot, metric: metric)
+                }
+            }
+        }
+    }
 
     private func stat(_ label: String, _ tokens: Int, _ cost: Double) -> some View {
         VStack(alignment: .leading, spacing: 1) {

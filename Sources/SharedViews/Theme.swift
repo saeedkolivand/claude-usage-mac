@@ -12,14 +12,41 @@ extension Level {
     }
 }
 
-enum Metric {
+/// Raw values are the stored setting, so a picker tag round-trips without a
+/// second mapping table.
+enum Metric: String, CaseIterable {
     case session
     case weekly
+    case opus
+    case sonnet
 
     var label: String {
         switch self {
         case .session: return "5 HOURS"
         case .weekly:  return "WEEKLY"
+        case .opus:    return "OPUS"
+        case .sonnet:  return "SONNET"
+        }
+    }
+
+    /// Sentence case, for notifications and pickers — the all-caps `label` is a
+    /// chart heading and reads as shouting anywhere else.
+    var title: String {
+        switch self {
+        case .session: return "5-hour limit"
+        case .weekly:  return "Weekly limit"
+        case .opus:    return "Opus weekly limit"
+        case .sonnet:  return "Sonnet weekly limit"
+        }
+    }
+
+    /// For the menu bar, where a word costs more room than it earns.
+    var initial: String {
+        switch self {
+        case .session: return "5H"
+        case .weekly:  return "W"
+        case .opus:    return "O"
+        case .sonnet:  return "S"
         }
     }
 }
@@ -29,6 +56,8 @@ extension Snapshot {
         switch metric {
         case .session: return sessionPct
         case .weekly:  return weeklyPct
+        case .opus:    return opusPct
+        case .sonnet:  return sonnetPct
         }
     }
 
@@ -36,7 +65,25 @@ extension Snapshot {
         switch metric {
         case .session: return sessionResetsAt
         case .weekly:  return weeklyResetsAt
+        case .opus:    return opusResetsAt
+        case .sonnet:  return sonnetResetsAt
         }
+    }
+
+    /// The per-model windows this account actually has. Empty on plans without
+    /// them, which is why every caller renders it as a list rather than as two
+    /// fixed rows with placeholders.
+    var perModelLimits: [Metric] {
+        [.opus, .sonnet].filter { pct($0) != nil }
+    }
+
+    /// "12%/h · full in 1h 20m", or just the rate when the window resets first.
+    /// Nil whenever there is no measured rate — the ordinary case.
+    func burnSummary(now: Date = Date()) -> String? {
+        guard let rate = burnRatePerHour, rate > 0 else { return nil }
+        let head = "\(Int(rate))%/h"
+        guard let seconds = timeToFull(now: now) else { return head }
+        return "\(head) · full in \(Format.until(now.addingTimeInterval(seconds), now: now))"
     }
 
     func level(_ metric: Metric) -> Level {
