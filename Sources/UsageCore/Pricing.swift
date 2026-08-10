@@ -20,6 +20,17 @@ public enum ModelFamily: String, Sendable {
     case sonnet
     case haiku
     case unknown
+
+    /// What a reader calls it. Opus 4.0/4.1 bill at the old rates but are still
+    /// "Opus" on screen, so the two families share one row in the breakdown.
+    public var label: String {
+        switch self {
+        case .opus, .opusLegacy: return "Opus"
+        case .sonnet:            return "Sonnet"
+        case .haiku:             return "Haiku"
+        case .unknown:           return "Other"
+        }
+    }
 }
 
 public enum Pricing {
@@ -60,7 +71,11 @@ public enum Pricing {
     }
 
     public static func rate(for model: String) -> Rate {
-        switch family(model) {
+        rate(family(model))
+    }
+
+    public static func rate(_ family: ModelFamily) -> Rate {
+        switch family {
         case .opus: return opus
         case .opusLegacy: return opusLegacy
         case .haiku: return haiku
@@ -74,7 +89,14 @@ public enum Pricing {
     /// Claude Code no longer records a `costUSD` field, so this is the only
     /// source of cost. On Pro/Max plans it is notional equivalent API spend.
     public static func cost(usage: [String: Any], model: String) -> Double {
-        let r = rate(for: model)
+        cost(usage: usage, family: family(model))
+    }
+
+    /// Takes the family directly, so a caller that already classified the model
+    /// doesn't pay for the regex twice — the scanner runs this over every entry
+    /// of a multi-gigabyte archive.
+    public static func cost(usage: [String: Any], family: ModelFamily) -> Double {
+        let r = rate(family)
         var total =
             Double(intValue(usage["input_tokens"])) * r.input
             + Double(intValue(usage["output_tokens"])) * r.output

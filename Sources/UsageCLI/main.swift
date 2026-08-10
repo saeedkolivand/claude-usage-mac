@@ -70,9 +70,24 @@ if flags.contains("--json") {
     }
     print("session: \(Format.percent(s.sessionPct))  resets \(Format.until(s.sessionResetsAt))")
     print("weekly:  \(Format.percent(s.weeklyPct))  resets \(Format.until(s.weeklyResetsAt))")
+    // Only on the plans that report them, which is the fastest way to find out
+    // whether yours does.
+    if let opus = s.opusPct {
+        print("opus:    \(Format.percent(opus))  resets \(Format.until(s.opusResetsAt))")
+    }
+    if let sonnet = s.sonnetPct {
+        print("sonnet:  \(Format.percent(sonnet))  resets \(Format.until(s.sonnetResetsAt))")
+    }
+    if let extra = s.extraUsagePct {
+        print("extra:   \(Format.percent(extra))")
+    }
     print("today:   \(Format.tokens(s.stats.todayTokens))  \(Format.cost(s.stats.todayCost))")
     print("week:    \(Format.tokens(s.stats.weekTokens))  \(Format.cost(s.stats.weekCost))")
     print("session: \(Format.tokens(s.stats.sessionTokens))  \(Format.cost(s.stats.sessionCost))")
+    print("month:   \(Format.cost(s.monthToDateCost()))")
+    for model in s.stats.models {
+        print("  \(model.name.padding(toLength: 8, withPad: " ", startingAt: 0))  \(Format.tokens(model.tokens))  \(Format.cost(model.cost))")
+    }
     for project in s.stats.projects.prefix(5) {
         print("  \(project.name.padding(toLength: min(32, max(project.name.count, 24)), withPad: " ", startingAt: 0))  \(Format.tokens(project.tokens))")
     }

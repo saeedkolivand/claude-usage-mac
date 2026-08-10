@@ -25,10 +25,11 @@ final class TranscriptScannerTests: XCTestCase {
 
     /// One assistant line whose only usage is `output_tokens`, so tokens == output
     /// and cost == output * sonnet output rate. Keeps the assertions readable.
-    private func line(_ id: String, at date: Date, output: Int, cwd: String = "/code/demo") -> String {
+    private func line(_ id: String, at date: Date, output: Int, cwd: String = "/code/demo",
+                      model: String = "claude-sonnet-5") -> String {
         """
         {"type":"assistant","requestId":"\(id)","timestamp":"\(Self.iso.string(from: date))",\
-        "cwd":"\(cwd)","message":{"id":"msg_\(id)","model":"claude-sonnet-5",\
+        "cwd":"\(cwd)","message":{"id":"msg_\(id)","model":"\(model)",\
         "usage":{"output_tokens":\(output)}}}
         """
     }
@@ -71,6 +72,53 @@ final class TranscriptScannerTests: XCTestCase {
     }
 
     // MARK: - Aggregation
+
+    // MARK: - Per-model breakdown
+
+    func testSplitsTheWeekByModel() async throws {
+        let now = Date()
+        try write("proj/one.jsonl", [
+            line("r1", at: now, output: 100, model: "claude-opus-5"),
+            line("r2", at: now, output: 40, model: "claude-sonnet-5"),
+            line("r3", at: now, output: 10, model: "claude-haiku-4-5"),
+        ])
+        let stats = await scanner().scan(force: true)
+
+        // Most tokens first, so the busiest model heads the list.
+        XCTAssertEqual(stats.models.map(\.name), ["Opus", "Sonnet", "Haiku"])
+        XCTAssertEqual(stats.models.first?.tokens, 100)
+        // Today's entries count in both columns off one deduplication.
+        XCTAssertEqual(stats.models.first?.todayTokens, 100)
+        XCTAssertEqual(stats.models.map(\.tokens).reduce(0, +), stats.weekTokens)
+    }
+
+    /// Opus 4.1 bills at the old rates but is still Opus on screen, so the two
+    /// pricing families share one row.
+    func testOpusGenerationsShareARow() async throws {
+        try write("proj/one.jsonl", [
+            line("r1", at: Date(), output: 100, model: "claude-opus-4-1"),
+            line("r2", at: Date(), output: 100, model: "claude-opus-5"),
+        ])
+        let stats = await scanner().scan(force: true)
+        XCTAssertEqual(stats.models.count, 1)
+        XCTAssertEqual(stats.models.first?.name, "Opus")
+        XCTAssertEqual(stats.models.first?.tokens, 200)
+        // Priced apart even though they are shown together.
+        XCTAssertEqual(stats.models.first?.cost ?? 0,
+                       Double(100) * 25 / 1e6 + Double(100) * 75 / 1e6, accuracy: 1e-12)
+    }
+
+    /// Synthetic entries are never billed, so they must not invent a model row
+    /// either.
+    func testSyntheticEntriesAreNotAModel() async throws {
+        try write("proj/one.jsonl", [
+            line("r1", at: Date(), output: 100, model: "<synthetic>"),
+            line("r2", at: Date(), output: 50),
+        ])
+        let stats = await scanner().scan(force: true)
+        XCTAssertEqual(stats.models.map(\.name), ["Sonnet"])
+        XCTAssertEqual(stats.models.first?.tokens, 50)
+    }
 
     func testWalksNestedProjectDirectories() async throws {
         try write("proj-a/deep/one.jsonl", [line("r1", at: Date(), output: 100)])

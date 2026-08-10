@@ -93,10 +93,15 @@ targets:
       - Sources/Widget/Views
       - Sources/MenuBarApp/Views
       # Settings renders live Poller state; App.swift stays out, its @main would
-      # collide with the test bundle's entry point. Updater comes along because
-      # Poller publishes its UpdateState, not because anything renders it.
+      # collide with the test bundle's entry point. The rest come along because
+      # Poller or the settings panes reference them, not because anything renders
+      # them: Updater for UpdateState, Notifier for the threshold alerts,
+      # MenuBarIcon for the drawn label, Hotkey for the shortcut picker.
       - Sources/MenuBarApp/Poller.swift
       - Sources/MenuBarApp/Updater.swift
+      - Sources/MenuBarApp/Notifier.swift
+      - Sources/MenuBarApp/MenuBarIcon.swift
+      - Sources/MenuBarApp/Hotkey.swift
       - Tests/SnapshotTests
     settings:
       base:

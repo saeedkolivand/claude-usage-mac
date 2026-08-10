@@ -36,10 +36,24 @@ struct UsageProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: UsageConfigIntent, in context: Context) async -> Timeline<UsageEntry> {
         // The host app pushes reloads as it polls, which is the real update path.
-        // This is only the fallback for when it isn't running — and WidgetKit
-        // budgets reloads anyway, so asking for anything tighter is wasted.
+        // This is only the fallback for when it isn't running.
         Timeline(entries: [entry(for: configuration)],
-                 policy: .after(Date().addingTimeInterval(15 * 60)))
+                 policy: .after(Date().addingTimeInterval(delay(for: configuration))))
+    }
+
+    /// This widget's own choice, else whatever the app says it polls at, else the
+    /// fifteen minutes this was fixed at before either existed.
+    ///
+    /// ponytail: floored at five minutes, and that floor is why the picker starts
+    /// there. WidgetKit budgets macOS reloads and quietly ignores anything
+    /// tighter, so offering a minute would be a control that lies.
+    private func delay(for configuration: UsageConfigIntent) -> TimeInterval {
+        let chosen = RefreshOptions.choices
+            .first { $0.label == configuration.refresh }?.seconds ?? 0
+        guard chosen == 0 else { return chosen }
+
+        let app = SnapshotBundle.read()?.refreshSeconds
+        return max(300, TimeInterval(app ?? 900))
     }
 
     private func entry(for configuration: UsageConfigIntent) -> UsageEntry {

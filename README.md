@@ -74,7 +74,7 @@ and `--no-quarantine` [is being removed](https://github.com/Homebrew/brew/issues
 | ![Small widget](docs/gallery/widget-small.png) | ![Medium widget](docs/gallery/widget-medium.png) |
 | **Small** — the 5-hour window, and when it resets. | **Medium** — both limits, plus today and this week. |
 | ![Large widget](docs/gallery/widget-large.png) | ![Project-scoped widget](docs/gallery/widget-project.png) |
-| **Large** — adds a 14-day chart. | **Project-scoped** — one directory's tokens and cost. No gauges: limits are account-level. |
+| **Large** — adds per-model limits, the burn rate, and a 13-week heatmap. | **Project-scoped** — one directory's tokens and cost. No gauges: limits are account-level. |
 
 ![The menu bar popover](docs/gallery/menu.png)
 
@@ -87,8 +87,17 @@ Two sources, both already on your machine. Nothing is sent anywhere.
 
 | Source | Gives |
 |---|---|
-| `api.anthropic.com/api/oauth/usage`, using the OAuth token Claude Code already stored | 5-hour and 7-day limit utilization, and when each resets |
-| `~/.claude/projects/**/*.jsonl` | today / this week / current session token counts and estimated cost |
+| `api.anthropic.com/api/oauth/usage`, using the OAuth token Claude Code already stored | 5-hour and 7-day limit utilization, the per-model weekly windows and purchased extra usage where the plan has them, and when each resets |
+| `~/.claude/projects/**/*.jsonl` | today / this week / current session token counts, estimated cost, and the split by model |
+
+Opus and Sonnet weekly windows come back null on plans without them, and nothing
+renders a placeholder for a limit an account doesn't have. `usage-cli` prints
+them when present, which is the quickest way to find out whether yours does.
+
+The burn rate is measured, not reported: percentage points per hour across this
+process's own readings of the 5-hour window. It says nothing until two polls of
+active use have gone by, and says nothing about time-to-limit when the window
+resets before it could fill — which is the usual case.
 
 The token is read from `<config dir>/.credentials.json`, falling back to the login
 Keychain. We never log in, never write credentials, and never transmit anything
@@ -146,13 +155,50 @@ security dump-keychain | grep -o '"svce"<blob>="Claude Code[^"]*"' | sort -u
 
 Tokens and cost still work either way, since those come from transcripts on disk.
 
+## Settings
+
+Five tabs, because macOS settings are conventionally tabbed and there are now
+enough of them to warrant it.
+
+| Tab | What's there |
+|---|---|
+| General | Refresh interval (1–10 minutes), open at login, global shortcut, export and copy, User-Agent |
+| Display | Menu bar as text or a drawn ring, which window it tracks, the text style, and the amber/red thresholds |
+| Alerts | Threshold notifications, daily and monthly budget targets |
+| Profiles | Account picker, added folders, rescan |
+| Updates | Version, check and install, Homebrew resync |
+
+A few of these are worth a sentence each.
+
+**Refresh interval.** Every profile is polled on this schedule and each poll is
+what refreshes the widgets. Longer intervals also stretch what "outdated" means:
+numbers are called stale after three polls, not after a fixed three minutes, so
+picking ten minutes doesn't label one-poll-old figures as old.
+
+**Menu bar ring.** Menu bar items are normally rendered as template images, which
+is why the text label signals critical with a `!` rather than red. The ring is
+drawn and its colour kept deliberately — it's opt-in, and text stays the default,
+because monochrome is the convention here.
+
+**Notifications** fire once per upward crossing of your amber and red
+thresholds, for the selected profile only, and re-arm when the window resets.
+Budget targets are their own opt-in: setting one turns its alert on, since a
+target you can see a bar for but never hear about is a decoration.
+
+**Global shortcut** is four presets rather than a key recorder. It uses Carbon's
+hotkey API, so it needs no Accessibility permission. If another app already owns
+the combination, this one silently loses it — pick a different one.
+
+**Export** writes daily totals and the per-model split as CSV, or the whole
+snapshot as JSON, depending on the extension you save under.
+
 ## Architecture
 
 ```
 Sources/
   UsageCore/     data layer, no UI — shared by the app, the widget, and the CLI
   SharedViews/   the ring gauge and palette, shared by the app and the widget
-  MenuBarApp/    MenuBarExtra, the 60s poller, settings
+  MenuBarApp/    MenuBarExtra, the poller, notifications, settings
   Widget/        AppIntent configuration and the widget families
   UsageCLI/      prints the snapshot; the CI smoke test
 ```
@@ -178,7 +224,15 @@ Getting data to the widget is the fiddly part, and worth writing down:
 The host only writes there once macOS has created the container; materializing
 one by hand leaves it without its container metadata, which can stop the
 extension launching at all. So a freshly added widget shows a placeholder until
-the next poll, at most 60 seconds.
+the next poll — at most one refresh interval, a minute by default.
+
+Each placed widget also carries a **Refresh** setting, and it is worth being
+plain about what it does: it changes how often that widget re-reads the file,
+and nothing else. Only the host app fetches, so when the app isn't running there
+is nothing newer on disk to find. "Follow app" — the default — takes the
+interval from the snapshot the app publishes. Everything is floored at five
+minutes because WidgetKit budgets macOS reloads and quietly ignores anything
+tighter.
 
 ## Developing without a Mac
 
@@ -208,7 +262,22 @@ What the snapshot loop cannot prove, and needs a pass on real hardware:
   every snapshot. Layout around them is real; the buttons themselves aren't.
 - The Settings window. `Form` with `.formStyle(.grouped)` is NSTableView-backed
   and renders empty detached, so there are deliberately no settings snapshots
-  rather than blank ones posing as coverage.
+  rather than blank ones posing as coverage. That now covers five tabs.
+- **Placed widgets survive the new `Refresh` parameter.** Adding a parameter
+  should be the safe kind of change where changing a *type* was not — 0.3 and
+  0.3.2 both killed placed widgets and there is no supported migration — but the
+  only proof is a widget placed before the upgrade still rendering after it.
+- **Notification authorization on an ad-hoc-signed build**, same class of problem
+  as "Open at login" above. A denial is silent by design, so "no notifications"
+  and "not authorized" look identical from here.
+- **The drawn menu bar ring**: a non-template `NSImage` in a `MenuBarExtra`
+  label, against light, dark, and tinted menu bars.
+- **The global shortcut**, both halves — Carbon registering without a permission
+  prompt, and the status-item lookup actually opening the popover. It fails
+  closed: if the button isn't found, nothing happens.
+- **Opus and Sonnet weekly windows.** The field names are documented by other
+  trackers, not by Anthropic. `swift run usage-cli` prints them when the endpoint
+  returns them, which is the check.
 
 ## Try the data layer
 
@@ -234,9 +303,10 @@ On Pro/Max plans this is notional equivalent API spend, not money you were
 charged. Rates live in `Sources/UsageCore/Pricing.swift`; edit them when
 Anthropic changes pricing.
 
-Scanning is incremental — per-file byte offsets, so a 60s poll re-reads only
-what was appended rather than the multiple gigabytes an active
-`~/.claude/projects` accumulates.
+Scanning is incremental — per-file byte offsets, so each poll re-reads only what
+was appended rather than the multiple gigabytes an active `~/.claude/projects`
+accumulates. That is what makes a one-minute default affordable, and why a
+longer interval saves less than you would think.
 
 ## History and projects
 

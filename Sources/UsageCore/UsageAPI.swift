@@ -13,10 +13,24 @@ public struct UsageNode: Codable, Sendable, Equatable {
 public struct UsageData: Codable, Sendable, Equatable {
     public var fiveHour: UsageNode?
     public var sevenDay: UsageNode?
+    /// Per-model weekly windows. Plans without them report null, so nil here
+    /// means "this account has no separate Opus limit" rather than "the fetch
+    /// failed" — which is why nothing renders a placeholder for them.
+    public var sevenDayOpus: UsageNode?
+    public var sevenDaySonnet: UsageNode?
+    /// Purchased extra usage, on accounts that have any. Parsed with the same
+    /// shape as the rest and simply absent when it doesn't fit — the endpoint is
+    /// undocumented and this field is the newest of them.
+    public var extraUsage: UsageNode?
 
-    public init(fiveHour: UsageNode?, sevenDay: UsageNode?) {
+    public init(fiveHour: UsageNode?, sevenDay: UsageNode?,
+                sevenDayOpus: UsageNode? = nil, sevenDaySonnet: UsageNode? = nil,
+                extraUsage: UsageNode? = nil) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
+        self.sevenDayOpus = sevenDayOpus
+        self.sevenDaySonnet = sevenDaySonnet
+        self.extraUsage = extraUsage
     }
 }
 
@@ -44,7 +58,12 @@ public actor UsageAPI {
     /// How stale on-screen numbers may get before we say so. Age-based on
     /// purpose: during an outage every consumer retries, so counting failures
     /// would scale with the number of consumers rather than elapsed time.
-    private static let staleAfter: TimeInterval = 180
+    ///
+    /// Set per fetch from the caller's poll interval rather than fixed, because
+    /// "stale" has to mean the same thing at every interval — three polls old.
+    /// A fixed 180s would call one-poll-old numbers outdated the moment someone
+    /// picked a five-minute refresh.
+    private var staleAfter: TimeInterval = 180
 
     private var cached: UsageData?
     private var cachedAt: Date = .distantPast
@@ -63,11 +82,13 @@ public actor UsageAPI {
     }
 
     private var isStale: Bool {
-        cached != nil && Date().timeIntervalSince(cachedAt) > Self.staleAfter
+        cached != nil && Date().timeIntervalSince(cachedAt) > staleAfter
     }
 
-    public func fetch(userAgent: String = defaultUserAgent, force: Bool = false) async -> FetchResult {
+    public func fetch(userAgent: String = defaultUserAgent, force: Bool = false,
+                      staleAfter: TimeInterval = 180) async -> FetchResult {
         let now = Date()
+        self.staleAfter = staleAfter
 
         if !force, cached != nil, now.timeIntervalSince(cachedAt) < Self.cacheTTL {
             return FetchResult(data: cached)
@@ -126,8 +147,13 @@ public actor UsageAPI {
                   let pct = (raw["utilization"] as? NSNumber)?.doubleValue else { return nil }
             return UsageNode(utilization: pct, resetsAt: parseDate(raw["resets_at"]))
         }
-        let data = UsageData(fiveHour: node("five_hour"), sevenDay: node("seven_day"))
-        // A body with neither window is not usable data.
+        let data = UsageData(fiveHour: node("five_hour"), sevenDay: node("seven_day"),
+                             sevenDayOpus: node("seven_day_opus"),
+                             sevenDaySonnet: node("seven_day_sonnet"),
+                             extraUsage: node("extra_usage"))
+        // A body with neither *account* window is not usable data. Per-model
+        // windows alone don't qualify: they're absent on most plans, so treating
+        // them as sufficient would accept a response that says nothing.
         return (data.fiveHour == nil && data.sevenDay == nil) ? nil : data
     }
 }
