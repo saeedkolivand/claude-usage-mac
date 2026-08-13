@@ -144,6 +144,8 @@ final class MarketingRenders: XCTestCase {
             Text(label)
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
+                // The icon above is narrower than its name; don't truncate to it.
+                .fixedSize()
         }
     }
 

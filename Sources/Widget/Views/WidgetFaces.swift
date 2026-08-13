@@ -486,17 +486,26 @@ private struct SpeedometerFace: View {
         case .small:
             VStack(spacing: 2) {
                 dial(.session)
-                caption
+                // The one family with a single dial still reads both windows.
+                HStack(spacing: 4) {
+                    Text("wk \(Format.percent(snapshot.weeklyPct))")
+                        .foregroundStyle(snapshot.level(.weekly).tint)
+                    Text("· resets \(Format.until(snapshot.sessionResetsAt))")
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.system(size: 9, weight: .medium))
+                .monospacedDigit()
+                .lineLimit(1)
             }
         case .medium:
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 dial(.session)
                 dial(.weekly)
-                VStack(alignment: .leading, spacing: 8) {
-                    StatRow(label: "Today", tokens: snapshot.stats.todayTokens,
-                            cost: snapshot.stats.todayCost)
-                    StatRow(label: "Week", tokens: snapshot.stats.weekTokens,
-                            cost: snapshot.stats.weekCost)
+                // Compact stacks, not StatRows — three flexible columns leave
+                // each a third of the face, and a StatRow truncates there.
+                VStack(alignment: .leading, spacing: 7) {
+                    miniStat("TODAY", snapshot.stats.todayTokens, snapshot.stats.todayCost)
+                    miniStat("WEEK", snapshot.stats.weekTokens, snapshot.stats.weekCost)
                     caption
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -523,6 +532,19 @@ private struct SpeedometerFace: View {
     private func dial(_ metric: Metric) -> some View {
         Dial(pct: snapshot.pct(metric), level: snapshot.level(metric),
              criticalPct: snapshot.critical, label: metric.label)
+    }
+
+    private func miniStat(_ label: String, _ tokens: Int, _ cost: Double) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(.tertiary)
+            Text("\(Format.tokens(tokens))  \(Format.cost(cost))")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+        }
     }
 
     private var caption: some View {
