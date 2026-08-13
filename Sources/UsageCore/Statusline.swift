@@ -65,7 +65,9 @@ public enum StatuslineInstaller {
     [ -r "$f" ] && cat "$f" || echo "claude usage: no data (is Claude Usage running?)"
     """
 
-    static var defaultDirectory: URL {
+    /// Public because it seeds the public entry points' default arguments —
+    /// Swift requires a default argument's pieces to be at least as visible.
+    public static var defaultDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude", isDirectory: true)
     }
