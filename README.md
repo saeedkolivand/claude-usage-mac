@@ -100,28 +100,34 @@ active use have gone by, and says nothing about time-to-limit when the window
 resets before it could fill — which is the usual case.
 
 The token is read from `<config dir>/.credentials.json`, falling back to the login
-Keychain. We never log in, never write credentials, and never transmit anything
-except the one authenticated GET above.
+Keychain. We never log in, and the only write we ever make is described under
+*Token refresh* below; nothing is transmitted except the authenticated requests
+above.
 
 Claude Code names that Keychain item after the config dir it was authenticated
 from: `Claude Code-credentials` for the default `~/.claude`, and
 `Claude Code-credentials-<first 8 hex of sha256(config dir)>` for anything
-relocated with `CLAUDE_CONFIG_DIR`. Each service name is tried pinned to account
-`claude-code-user` first and unpinned second, because the account name differs
-between Claude Code versions.
+relocated with `CLAUDE_CONFIG_DIR`. Each service name is queried by service
+alone, deliberately unpinned from any account name: real machines carry the
+macOS short username there, not a fixed value, and pinning has already shipped
+one release that couldn't find its own token.
 
 An expired credential never hides a live one behind it: a leftover
 `.credentials.json`, or a dead Keychain item sharing a service name with a
 current one, is remembered but stepped over, and only reported if every other
 candidate misses.
 
-Claude Code only refreshes the config dir it is actually running in, so a profile
-you have stopped using parks on a dead token — and, until it is refreshed, on
-whatever numbers it last managed to fetch. Because the usage endpoint is
-account-scoped rather than config-dir-scoped, such a profile shows the rings of
-another profile signed in to the same account (same email *and* organization) if
-one is present. Failing that it says "Token expired — use Claude Code in this
-profile to refresh", which is the only thing that actually refreshes it.
+**Token refresh.** When the access token expires (they live ~8 hours), the app
+refreshes it itself with the same OAuth flow the CLI uses, and writes the
+rotated refresh token back to `.credentials.json` — atomically, preserving
+every other field — so the CLI stays logged in. This only works for
+**file-backed** profiles: the Keychain item belongs to the CLI and a write from
+another process risks consuming the single-use rotation without persisting it,
+which would log the CLI out. Keychain-only profiles therefore still rely on
+Claude Code refreshing the dir it runs in; because the usage endpoint is
+account-scoped, such a profile borrows the rings of another profile on the same
+account (same email *and* organization) if one is present, and failing that
+says "Token expired — open Claude Code in this profile".
 
 A profile with no token at all keeps saying so rather than borrowing: that is
 also what a denied Keychain prompt looks like, and it is worth fixing rather than

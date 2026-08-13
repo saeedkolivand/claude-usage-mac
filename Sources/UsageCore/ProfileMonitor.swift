@@ -43,7 +43,11 @@ public actor ProfileMonitor {
         let stats = await scanner.scan(force: force)
         let result = await usage
 
-        var snapshot = Snapshot(usage: result.data, stats: stats,
+        // The snapshot's clock is when its numbers were fetched, not when this
+        // poll ran — during an outage "updated 2s ago" next to hours-old
+        // percentages was a lie the stale flag then had to contradict.
+        var snapshot = Snapshot(updatedAt: result.fetchedAt ?? Date(),
+                                usage: result.data, stats: stats,
                                 error: result.error, stale: result.stale,
                                 warn: warn, critical: critical)
         snapshot.profileLabel = label
