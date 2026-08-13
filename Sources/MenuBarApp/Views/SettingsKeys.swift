@@ -7,7 +7,10 @@ enum SettingsKey {
     static let menuBarMetric = "menuBarMetric"
     static let menuBarStyle = "menuBarStyle"
     static let menuBarAppearance = "menuBarAppearance"
+    static let menuBarColorMode = "menuBarColorMode"
+    static let menuBarCustomColor = "menuBarCustomColor"
     static let selectedProfile = "selectedProfile"
+    static let autoSwitchProfile = "autoSwitchProfile"
     static let autoCheckUpdates = "autoCheckUpdates"
     static let refreshInterval = "refreshInterval"
     static let notifyThreshold = "notifyThreshold"
@@ -62,18 +65,48 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
     }
 }
 
-/// Text or a drawn ring. Text is the default because macOS menu extras are
-/// monochrome by convention — see MenuBarIcon for what the ring costs.
+/// Text or a drawn form. Text is the default because macOS menu extras are
+/// monochrome by convention — see MenuBarIcon for what the drawn ones cost.
 enum MenuBarAppearance: String, CaseIterable, Identifiable {
     case text
     case ring
+    case ringPercent
+    case battery
+    case bar
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .text: return "Text"
-        case .ring: return "Ring"
+        case .text:        return "Text"
+        case .ring:        return "Ring"
+        case .ringPercent: return "Ring + %"
+        case .battery:     return "Battery"
+        case .bar:         return "Bar"
+        }
+    }
+
+    /// Everything but the text label is rendered as an NSImage.
+    var isDrawn: Bool { self != .text }
+}
+
+/// How a drawn menu bar form is coloured. Text has no choice to make — a text
+/// label is always a template.
+enum MenuBarColorMode: String, CaseIterable, Identifiable {
+    /// The existing green/amber/red bands.
+    case threshold
+    /// A template image, recoloured by the system like every other status item.
+    case mono
+    /// One fixed hex colour, whatever the number says.
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .threshold: return "By usage"
+        case .mono:      return "Match menu bar"
+        case .custom:    return "Custom"
         }
     }
 }

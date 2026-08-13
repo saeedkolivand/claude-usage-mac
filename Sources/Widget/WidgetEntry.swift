@@ -12,6 +12,9 @@ struct UsageEntry: TimelineEntry {
     /// instead of numbers, because showing some other account's figures under
     /// this widget's name is worse than showing nothing.
     var problem: WidgetProblem?
+    /// The configured look. A property default rather than an init parameter:
+    /// every entry gets it stamped in one place, `entry(for:)`.
+    var style: FaceStyle = .standard
 
     init(date: Date, snapshot: Snapshot?, project: ProjectUsage?,
          scopeLabel: String?, problem: WidgetProblem? = nil) {
@@ -57,6 +60,12 @@ struct UsageProvider: AppIntentTimelineProvider {
     }
 
     private func entry(for configuration: UsageConfigIntent) -> UsageEntry {
+        var entry = scoped(for: configuration)
+        entry.style = FaceStyle(label: configuration.style)
+        return entry
+    }
+
+    private func scoped(for configuration: UsageConfigIntent) -> UsageEntry {
         // Empty strings can come back from a cleared picker; treat them as unset.
         let wantedProfile = configuration.profile.flatMap { $0.isEmpty ? nil : $0 }
         let wantedProject = configuration.project.flatMap { $0.isEmpty ? nil : $0 }
@@ -118,8 +127,9 @@ struct UsageWidgetEntryView: View {
                         project: entry.project,
                         scopeLabel: entry.scopeLabel,
                         problem: entry.problem,
-                        face: Face(family))
-            .containerBackground(.fill.tertiary, for: .widget)
+                        face: Face(family),
+                        style: entry.style)
+            .containerBackground(for: .widget) { entry.style.backdrop }
     }
 }
 

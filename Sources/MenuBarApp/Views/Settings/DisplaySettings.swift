@@ -6,6 +6,8 @@ struct DisplaySettings: View {
     @AppStorage(SettingsKey.menuBarMetric) private var menuBarMetric = Metric.session.rawValue
     @AppStorage(SettingsKey.menuBarStyle) private var menuBarStyle = MenuBarStyle.percentage.rawValue
     @AppStorage(SettingsKey.menuBarAppearance) private var appearance = MenuBarAppearance.text.rawValue
+    @AppStorage(SettingsKey.menuBarColorMode) private var colorMode = MenuBarColorMode.threshold.rawValue
+    @AppStorage(SettingsKey.menuBarCustomColor) private var customColor = "#22c55e"
 
     private var style: MenuBarStyle { MenuBarStyle(rawValue: menuBarStyle) ?? .percentage }
     private var showsText: Bool { MenuBarAppearance(rawValue: appearance) == .text }
@@ -18,7 +20,6 @@ struct DisplaySettings: View {
                         Text(option.label).tag(option.rawValue)
                     }
                 }
-                .pickerStyle(.segmented)
 
                 Picker("Shows", selection: $menuBarMetric) {
                     Text("5-hour session").tag(Metric.session.rawValue)
@@ -26,7 +27,8 @@ struct DisplaySettings: View {
                     Text("Opus weekly").tag(Metric.opus.rawValue)
                 }
 
-                // Only the text form has a shape to choose; a ring is a ring.
+                // Only the text form has a shape to choose; the drawn ones have
+                // a colour to choose instead.
                 if showsText {
                     Picker("Style", selection: $menuBarStyle) {
                         ForEach(MenuBarStyle.allCases) { option in
@@ -36,7 +38,23 @@ struct DisplaySettings: View {
                     LabeledContent("", value: style.example)
                         .font(.caption.monospacedDigit())
                 } else {
-                    Text("A drawn ring keeps the colour a text label can't — menu bar items are otherwise rendered in one tone. It shows no number, so pick the window it tracks above.")
+                    Picker("Colour", selection: $colorMode) {
+                        ForEach(MenuBarColorMode.allCases) { option in
+                            Text(option.label).tag(option.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    if MenuBarColorMode(rawValue: colorMode) == .custom {
+                        TextField("Hex colour", text: $customColor,
+                                  prompt: Text("#22c55e"))
+                            .font(.body.monospaced())
+                        if HexColor.rgb(customColor) == nil {
+                            Text("Not a hex colour — the usage colours apply until it is.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    Text("A drawn form keeps the colour a text label can't — menu bar items are otherwise rendered in one tone. \"Match menu bar\" gives that tone back on purpose. Battery, bar and the plain ring show no number, so pick the window they track above.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

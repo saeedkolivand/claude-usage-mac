@@ -28,9 +28,21 @@ final class MarketingRenders: XCTestCase {
     /// gallery honest about how they actually look.
     private func widget(_ face: Face, project: ProjectUsage? = nil,
                         scope: String? = nil) -> some View {
-        UsageWidgetView(snapshot: .preview, project: project, scopeLabel: scope, face: face)
+        plate(UsageWidgetView(snapshot: .preview, project: project, scopeLabel: scope, face: face)
+            .padding(face == .small ? 12 : 16)
+            .frame(width: face.size.width, height: face.size.height))
+    }
+
+    /// Same plate, plus the container backdrop the style brings with it.
+    private func styledWidget(_ face: Face, style: FaceStyle) -> some View {
+        plate(UsageWidgetView(snapshot: .preview, face: face, style: style)
             .padding(face == .small ? 12 : 16)
             .frame(width: face.size.width, height: face.size.height)
+            .background(style.backdrop))
+    }
+
+    private func plate<V: View>(_ content: V) -> some View {
+        content
             .background(Color(white: 0.07))
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
@@ -90,6 +102,48 @@ final class MarketingRenders: XCTestCase {
 
     func testRenderPopover() throws {
         try render(backdrop { popover }, to: "menu.png")
+    }
+
+    /// One image per configurable widget style, medium family — the size that
+    /// shows each look best without dwarfing the grid it sits in.
+    func testRenderWidgetStyles() throws {
+        for style in FaceStyle.allCases where style != .standard {
+            try render(backdrop { styledWidget(.medium, style: style) },
+                       to: "widget-style-\(style.rawValue).png")
+        }
+    }
+
+    /// The drawn menu bar forms as a labelled strip. Rendered at menu bar size
+    /// on purpose — showing them bigger than they ever appear would be a lie.
+    func testRenderMenuBarStyles() throws {
+        let view = backdrop(36) {
+            HStack(alignment: .top, spacing: 28) {
+                ForEach(MenuBarAppearance.allCases.filter(\.isDrawn)) { appearance in
+                    strip(appearance.label) {
+                        if let image = MenuBarIcon.image(
+                            appearance: appearance, pct: 42, level: .ok) {
+                            Image(nsImage: image)
+                        }
+                    }
+                }
+                strip("Text") {
+                    Text("42%")
+                        .font(.system(size: 12, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        try render(view, to: "menubar-styles.png")
+    }
+
+    private func strip<V: View>(_ label: String, @ViewBuilder content: () -> V) -> some View {
+        VStack(spacing: 10) {
+            content().frame(height: 18)
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Rendering

@@ -79,7 +79,17 @@ and `--no-quarantine` [is being removed](https://github.com/Homebrew/brew/issues
 ![The menu bar popover](docs/gallery/menu.png)
 
 Every widget carries its own configuration, so you can place one per account or
-one per project, side by side.
+one per project, side by side. Each also picks a **Style** in Edit Widget —
+five looks beyond the default:
+
+| | |
+|---|---|
+| ![Terminal-style widget](docs/gallery/widget-style-terminal.png) | ![Speedometer-style widget](docs/gallery/widget-style-speedometer.png) |
+| **Terminal** — phosphor text and ASCII bars. | **Speedometer** — a needle over a 240° dial, red zone past your critical threshold. |
+| ![LCD-style widget](docs/gallery/widget-style-lcd.png) | ![Glass-style widget](docs/gallery/widget-style-glass.png) |
+| **LCD** — seven-segment digits: cyan, amber past warn, red past critical. | **Glass** — a frosted card over colour tinted by the session level. |
+| ![Heatmap-style widget](docs/gallery/widget-style-heatmap.png) | ![The menu bar icon styles](docs/gallery/menubar-styles.png) |
+| **Heatmap** — the 13-week heatmap as the whole face, limits as corner chips. | **Menu bar** — ring, ring + %, battery, bar or text; coloured by usage, monochrome, or a fixed colour. |
 
 ## What it reads
 
@@ -168,10 +178,10 @@ enough of them to warrant it.
 
 | Tab | What's there |
 |---|---|
-| General | Refresh interval (1–10 minutes), open at login, global shortcut, export and copy, User-Agent |
-| Display | Menu bar as text or a drawn ring, which window it tracks, the text style, and the amber/red thresholds |
+| General | Refresh interval (1–10 minutes), open at login, global shortcut, export and copy, Claude Code statusline install, User-Agent |
+| Display | Menu bar as text, ring, ring + %, battery or bar; its colour mode; which window it tracks; the text style; and the amber/red thresholds |
 | Alerts | Threshold notifications, daily and monthly budget targets |
-| Profiles | Account picker, added folders, rescan |
+| Profiles | Account picker, auto-switch on session limit, added folders, rescan |
 | Updates | Version, check and install, Homebrew resync |
 
 A few of these are worth a sentence each.
@@ -181,9 +191,12 @@ what refreshes the widgets. Longer intervals also stretch what "outdated" means:
 numbers are called stale after three polls, not after a fixed three minutes, so
 picking ten minutes doesn't label one-poll-old figures as old.
 
-**Menu bar ring.** Menu bar items are normally rendered as template images, which
-is why the text label signals critical with a `!` rather than red. The ring is
-drawn and its colour kept deliberately — it's opt-in, and text stays the default,
+**Menu bar styles.** Menu bar items are normally rendered as template images,
+which is why the text label signals critical with a `!` rather than red. The
+drawn forms — ring, ring + %, battery, bar — are rendered and their colour kept
+deliberately. Colour has three modes: *by usage* (the green/amber/red bands),
+*match menu bar* (a genuine template image, recoloured by the system like every
+other status item), or a fixed hex colour of your own. Text stays the default,
 because monochrome is the convention here.
 
 **Notifications** fire once per upward crossing of your amber and red
@@ -197,6 +210,32 @@ the combination, this one silently loses it — pick a different one.
 
 **Export** writes daily totals and the per-model split as CSV, or the whole
 snapshot as JSON, depending on the extension you save under.
+
+**Auto-switch on session limit** (Profiles tab, off by default): when the
+selected account's 5-hour window reaches your red threshold, the menu bar shows
+the account with the most session headroom instead, and returns once the
+original's window resets below the amber threshold. Display only — it never
+changes which account is signed in, and alerts stay about the account you
+picked. Profiles on the same email and organization share their limits, so
+only genuinely different accounts count as headroom.
+
+## Claude Code statusline
+
+Settings → General → *Install Claude Code statusline* puts the menu bar reading
+inside Claude Code itself:
+
+```
+5h 34% | wk 70% | resets 2h 10m
+```
+
+The app already writes a preformatted `statusline.txt` next to its snapshot on
+every poll, so the installed `~/.claude/statusline-usage.sh` is just a `cat`
+with a fallback echo — no jq, no python, nothing to parse in shell. Install
+merges the `statusLine` key into `~/.claude/settings.json` atomically with
+every other key preserved. A statusline that was already someone else's is
+backed up whole to `settings.json.claude-usage-backup` and restored by
+Uninstall; if a foreign statusline is present *and* that backup slot is already
+taken, install refuses rather than overwrite either.
 
 ## Architecture
 
@@ -231,6 +270,11 @@ The host only writes there once macOS has created the container; materializing
 one by hand leaves it without its container metadata, which can stop the
 extension launching at all. So a freshly added widget shows a placeholder until
 the next poll — at most one refresh interval, a minute by default.
+
+Each placed widget also carries a **Style** setting — the default face or one
+of five other looks (terminal, speedometer, LCD, glass, heatmap), all drawn in
+plain SwiftUI from the same snapshot. Like Refresh below it is an *additive*
+parameter, the safe kind of intent change.
 
 Each placed widget also carries a **Refresh** setting, and it is worth being
 plain about what it does: it changes how often that widget re-reads the file,
@@ -276,8 +320,14 @@ What the snapshot loop cannot prove, and needs a pass on real hardware:
 - **Notification authorization on an ad-hoc-signed build**, same class of problem
   as "Open at login" above. A denial is silent by design, so "no notifications"
   and "not authorized" look identical from here.
-- **The drawn menu bar ring**: a non-template `NSImage` in a `MenuBarExtra`
-  label, against light, dark, and tinted menu bars.
+- **The drawn menu bar forms** — ring, ring + %, battery, bar — as non-template
+  `NSImage`s in a `MenuBarExtra` label, against light, dark, and tinted menu
+  bars; and the *match menu bar* mode actually being recoloured as a template.
+- **The widget Style parameter on already-placed widgets** — additive, so it
+  should be the safe kind of change, with the same caveat as Refresh above.
+- **The statusline installer against a real `~/.claude`.** The merge and backup
+  logic is unit-tested on temp files, but Claude Code rendering the line needs
+  a real machine.
 - **The global shortcut**, both halves — Carbon registering without a permission
   prompt, and the status-item lookup actually opening the popover. It fails
   closed: if the button isn't found, nothing happens.
