@@ -38,11 +38,18 @@ public struct FetchResult: Sendable {
     public var data: UsageData?
     public var error: String?
     public var stale: Bool
+    /// When `data` was actually fetched from the API — the cache's timestamp
+    /// when a failure serves older numbers. Nil when there is no data at all.
+    /// This is what "updated X ago" should show; stamping poll time there made
+    /// frozen numbers read as fresh.
+    public var fetchedAt: Date?
 
-    public init(data: UsageData?, error: String? = nil, stale: Bool = false) {
+    public init(data: UsageData?, error: String? = nil, stale: Bool = false,
+                fetchedAt: Date? = nil) {
         self.data = data
         self.error = error
         self.stale = stale
+        self.fetchedAt = fetchedAt
     }
 }
 
@@ -76,9 +83,11 @@ public actor UsageAPI {
     private var lastFailError: String?
 
     private let profile: Profile
+    private let refresher: TokenRefresher
 
     public init(profile: Profile) {
         self.profile = profile
+        self.refresher = TokenRefresher(credentialsFile: profile.credentialsFile)
     }
 
     private var isStale: Bool {
@@ -91,16 +100,22 @@ public actor UsageAPI {
         self.staleAfter = staleAfter
 
         if !force, cached != nil, now.timeIntervalSince(cachedAt) < Self.cacheTTL {
-            return FetchResult(data: cached)
+            return FetchResult(data: cached, fetchedAt: cachedAt)
         }
         if !force, let err = lastFailError, now.timeIntervalSince(lastFailAt) < Self.cacheTTL {
-            return FetchResult(data: cached, error: err, stale: isStale)
+            return FetchResult(data: cached, error: err, stale: isStale,
+                               fetchedAt: cached != nil ? cachedAt : nil)
         }
 
-        let creds = CredentialStore.read(for: profile)
+        var creds = CredentialStore.read(for: profile)
+        if creds.token == nil || creds.expired {
+            // An expired or missing access token no longer waits for Claude Code
+            // — refresh it ourselves from the rotating refresh token. File-backed
+            // profiles only; Keychain-backed ones keep the old behavior because
+            // there is nowhere safe to persist the rotation (see TokenRefresher).
+            creds = await refresher.refresh(force: force) ?? creds
+        }
         guard let token = creds.token else { return fail("no-token") }
-        // An already-expired token guarantees a 401 — skip the request and wait
-        // for Claude Code to write a refreshed one.
         guard !creds.expired else { return fail("token-expired") }
 
         var request = URLRequest(url: Self.endpoint)
@@ -116,15 +131,24 @@ public actor UsageAPI {
         request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
 
         do {
-            let (body, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            var (body, response) = try await URLSession.shared.data(for: request)
+            var status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401,
+               let fresh = await refresher.refresh(force: force, badToken: token),
+               let newToken = fresh.token, newToken != token {
+                // The file said the token was valid but the server disagrees
+                // (clock skew, revocation) — refresh once and retry.
+                request.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                (body, response) = try await URLSession.shared.data(for: request)
+                status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            }
             guard (200..<300).contains(status) else { return fail("http-\(status)") }
             guard let parsed = Self.parse(body) else { return fail("bad-json") }
 
             cached = parsed
             cachedAt = now
             lastFailError = nil
-            return FetchResult(data: parsed)
+            return FetchResult(data: parsed, fetchedAt: now)
         } catch {
             return fail("network")
         }
@@ -133,7 +157,8 @@ public actor UsageAPI {
     private func fail(_ error: String) -> FetchResult {
         lastFailAt = Date()
         lastFailError = error
-        return FetchResult(data: cached, error: error, stale: isStale)
+        return FetchResult(data: cached, error: error, stale: isStale,
+                           fetchedAt: cached != nil ? cachedAt : nil)
     }
 
     /// Hand-parsed rather than Codable: the endpoint is undocumented and may grow
