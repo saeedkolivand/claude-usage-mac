@@ -119,14 +119,14 @@ final class MarketingRenders: XCTestCase {
         let view = backdrop(36) {
             HStack(alignment: .top, spacing: 28) {
                 ForEach(MenuBarAppearance.allCases.filter(\.isDrawn)) { appearance in
-                    strip(appearance.label) {
+                    Self.strip(appearance.label) {
                         if let image = MenuBarIcon.image(
                             appearance: appearance, pct: 42, level: .ok) {
                             Image(nsImage: image)
                         }
                     }
                 }
-                strip("Text") {
+                Self.strip("Text") {
                     Text("42%")
                         .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
@@ -137,7 +137,8 @@ final class MarketingRenders: XCTestCase {
         try render(view, to: "menubar-styles.png")
     }
 
-    private func strip<V: View>(_ label: String, @ViewBuilder content: () -> V) -> some View {
+    /// Static so the view-builder closures above don't capture self.
+    private static func strip<V: View>(_ label: String, @ViewBuilder content: () -> V) -> some View {
         VStack(spacing: 10) {
             content().frame(height: 18)
             Text(label)

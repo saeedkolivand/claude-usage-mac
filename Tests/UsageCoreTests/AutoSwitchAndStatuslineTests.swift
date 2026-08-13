@@ -147,7 +147,9 @@ final class StatuslineTextTests: XCTestCase {
     }
 
     func testNoDataStillPrintsSomethingHonest() {
-        XCTAssertEqual(Snapshot().statuslineText, "5h --% | wk --%")
+        // Format.percent renders nil as "--" with no unit, and that's right
+        // here too: a percent sign on a missing reading would claim a number.
+        XCTAssertEqual(Snapshot().statuslineText, "5h -- | wk --")
     }
 }
 
