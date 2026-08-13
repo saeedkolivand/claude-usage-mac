@@ -36,6 +36,11 @@ final class Poller: ObservableObject {
     @AppStorage(SettingsKey.notifyThreshold) private var notifyThreshold = true
     @AppStorage(SettingsKey.dailyBudget) private var dailyBudget = 0.0
     @AppStorage(SettingsKey.monthlyBudget) private var monthlyBudget = 0.0
+    @AppStorage(SettingsKey.autoSwitchProfile) private var autoSwitchProfile = false
+
+    /// The profile the menu bar is temporarily showing instead of the selected
+    /// one — the auto-switch latch. See `AutoSwitch.shownProfile`.
+    private var autoSwitchedTo: String?
 
     private var loop: Task<Void, Never>?
     /// Only the wait, never the poll — see wakeNow().
@@ -78,14 +83,17 @@ final class Poller: ObservableObject {
         }
     }
 
-    /// The same reading as a drawn ring, for the appearance that asks for one.
+    /// The same reading as a drawn form, for the appearances that ask for one.
     ///
     /// Computed rather than published: the label body is re-evaluated when the
     /// snapshot changes or the setting does, and a 16-point render costs less
     /// than the plumbing to keep a cached copy in step with both.
-    func menuBarImage(metric: Metric) -> NSImage? {
-        MenuBarIcon.ring(pct: snapshot?.pct(metric),
-                         level: snapshot?.level(metric) ?? .none)
+    func menuBarImage(appearance: MenuBarAppearance, metric: Metric,
+                      colorMode: MenuBarColorMode, customHex: String) -> NSImage? {
+        MenuBarIcon.image(appearance: appearance,
+                          pct: snapshot?.pct(metric),
+                          level: snapshot?.level(metric) ?? .none,
+                          colorMode: colorMode, customHex: customHex)
     }
 
     private func marked(_ snapshot: Snapshot, _ metric: Metric) -> String {
@@ -141,6 +149,8 @@ final class Poller: ObservableObject {
         snapshot = nil
         // Another account's severities would otherwise decide this one's alerts.
         lastLevel.removeAll()
+        // A hand-picked profile is an answer, not something to switch away from.
+        autoSwitchedTo = nil
         refreshNow()
     }
 
@@ -245,16 +255,31 @@ final class Poller: ObservableObject {
         bundle.lendUsageBetweenSameAccountProfiles()
         bundle.updatedAt = Date()
 
-        snapshot = activeProfile.flatMap { bundle.profiles[$0.id] }
+        let own = activeProfile.flatMap { bundle.profiles[$0.id] }
+        if autoSwitchProfile, let selected = activeProfile?.id {
+            autoSwitchedTo = AutoSwitch.shownProfile(
+                in: bundle, selectedID: selected, current: autoSwitchedTo,
+                warn: warn, critical: critical)
+        } else {
+            autoSwitchedTo = nil
+        }
+        snapshot = autoSwitchedTo.flatMap { bundle.profiles[$0] } ?? own
         bundle.write()
         // Kept alongside the bundle so a widget built before per-widget scoping
         // still finds what it expects.
         snapshot?.write()
+        // The Claude Code statusline reads this preformatted line — see
+        // StatuslineInstaller. Written whether or not the script is installed;
+        // it costs one tiny file.
+        Statusline.write((snapshot ?? bundle.defaultSnapshot)?.statuslineText
+            ?? "claude usage: no data")
         if bundle.draws(differentlyFrom: lastPublished) {
             lastPublished = bundle
             WidgetCenter.shared.reloadAllTimelines()
         }
-        if let snapshot { alert(about: snapshot) }
+        // Alerts stay about the *selected* profile even while the display has
+        // auto-switched — the switch is cosmetic, the limit crossing is not.
+        if let own { alert(about: own) }
 
         guard autoCheckUpdates else { return }
         // Rate-limited internally to four times a day, so calling it every poll

@@ -143,6 +143,69 @@ final class RenderSnapshotTests: XCTestCase {
         }
     }
 
+    /// Every configured widget style at every size, in both schemes, at a
+    /// typical and a critical state — the styles recolour on severity, and the
+    /// only way to review any of it is these PNGs.
+    func testRenderStyledWidgetFaces() throws {
+        let states: [(String, Snapshot)] = [
+            ("typical", .preview),
+            ("critical", Self.at(session: 97, weekly: 88)),
+        ]
+        for style in FaceStyle.allCases where style != .standard {
+            for face in Face.allCases {
+                for (state, snapshot) in states {
+                    for scheme in [ColorScheme.light, .dark] {
+                        let view = UsageWidgetView(snapshot: snapshot, face: face, style: style)
+                            .padding(face == .small ? 12 : 16)
+                            .frame(width: face.size.width, height: face.size.height)
+                            // The same backdrop WidgetKit composes under this style.
+                            .background(style.backdrop)
+                            .background(scheme == .dark ? Color.black : Color.white)
+                            .environment(\.colorScheme, scheme)
+                        try render(view,
+                                   to: "widget-\(face.rawValue)-\(style.rawValue)-\(state)-\(scheme.name).png")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every drawn menu bar form in every colour mode at each severity, plus
+    /// the text styles — the whole style × mode matrix CI can exercise.
+    func testRenderMenuBarIcons() throws {
+        let states: [(String, Double?)] = [
+            ("ok", 42), ("warn", 64), ("critical", 97), ("nodata", nil),
+        ]
+        for appearance in MenuBarAppearance.allCases where appearance.isDrawn {
+            for mode in MenuBarColorMode.allCases {
+                for (state, pct) in states {
+                    let image = try XCTUnwrap(
+                        MenuBarIcon.image(appearance: appearance, pct: pct,
+                                          level: Level.of(pct),
+                                          colorMode: mode, customHex: "#8b5cf6"),
+                        "\(appearance.rawValue)-\(mode.rawValue)-\(state)")
+                    // Mono is the one mode the system may recolour — the others
+                    // must keep their own pixels.
+                    XCTAssertEqual(image.isTemplate, mode == .mono)
+                    try write(image,
+                              to: "menubar-\(appearance.rawValue)-\(mode.rawValue)-\(state).png")
+                }
+            }
+        }
+
+        // The text appearance has no image; render each text style once so the
+        // matrix is complete on the sheet.
+        let poller = Poller(autostart: false, snapshot: .preview)
+        for style in MenuBarStyle.allCases {
+            let view = Text(poller.menuBarTitle(metric: .session, style: style))
+                .monospacedDigit()
+                .padding(4)
+                .background(Color.black)
+                .environment(\.colorScheme, .dark)
+            try render(view, to: "menubar-text-\(style.rawValue).png")
+        }
+    }
+
     func testRenderMenuPopover() throws {
         for state in Self.states {
             for scheme in [ColorScheme.light, .dark] {
@@ -187,6 +250,11 @@ final class RenderSnapshotTests: XCTestCase {
         renderer.scale = 2  // Retina, so text is legible when reviewed
 
         let image = try XCTUnwrap(renderer.nsImage, "ImageRenderer produced nothing for \(name)")
+        try write(image, to: name)
+    }
+
+    /// For images that already exist as `NSImage` — the menu bar forms.
+    private func write(_ image: NSImage, to name: String) throws {
         XCTAssertGreaterThan(image.size.width, 0, "\(name) rendered with zero width")
 
         let data = try XCTUnwrap(image.tiffRepresentation)

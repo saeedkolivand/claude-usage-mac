@@ -15,6 +15,8 @@ struct ClaudeUsageApp: App {
     /// old choice until the next poll. At a ten-minute interval that is ten
     /// minutes of a settings control appearing to do nothing.
     @AppStorage(SettingsKey.menuBarAppearance) private var appearance = MenuBarAppearance.text.rawValue
+    @AppStorage(SettingsKey.menuBarColorMode) private var colorMode = MenuBarColorMode.threshold.rawValue
+    @AppStorage(SettingsKey.menuBarCustomColor) private var customColor = "#22c55e"
     @AppStorage(SettingsKey.menuBarMetric) private var menuBarMetric = Metric.session.rawValue
     @AppStorage(SettingsKey.menuBarStyle) private var menuBarStyle = MenuBarStyle.percentage.rawValue
     @AppStorage(SettingsKey.dailyBudget) private var dailyBudget = 0.0
@@ -33,11 +35,14 @@ struct ClaudeUsageApp: App {
                      refresh: poller.refreshNow)
         } label: {
             // One or the other, never both: a MenuBarExtra label is happiest as a
-            // single Text or a single Image, and the ring already says what the
-            // number says. Text is also the fallback when rendering fails, so the
-            // status item can never end up empty and unclickable.
-            if MenuBarAppearance(rawValue: appearance) == .ring,
-               let image = poller.menuBarImage(metric: metric) {
+            // single Text or a single Image, and the drawn forms already say what
+            // the number says. Text is also the fallback when rendering fails, so
+            // the status item can never end up empty and unclickable.
+            if let image = poller.menuBarImage(
+                appearance: MenuBarAppearance(rawValue: appearance) ?? .text,
+                metric: metric,
+                colorMode: MenuBarColorMode(rawValue: colorMode) ?? .threshold,
+                customHex: customColor) {
                 Image(nsImage: image)
             } else {
                 Text(poller.menuBarTitle(metric: metric, style: style)).monospacedDigit()

@@ -62,3 +62,21 @@ public enum Format {
         String(format: wide ? "%.0f" : "%.1f", v)
     }
 }
+
+public enum HexColor {
+    /// "#22c55e", "22c55e" or "#2c5" to components in 0...1. Nil when malformed,
+    /// so callers can fall back to the threshold tint rather than guess.
+    ///
+    /// Lives here rather than in the views because parsing is pure string work,
+    /// and this is the layer `swift test` reaches.
+    public static func rgb(_ hex: String) -> (red: Double, green: Double, blue: Double)? {
+        var s = hex.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s.removeFirst() }
+        if s.count == 3 { s = s.map { "\($0)\($0)" }.joined() }
+        guard s.count == 6, s.allSatisfy(\.isHexDigit), let v = UInt32(s, radix: 16)
+        else { return nil }
+        return (Double((v >> 16) & 0xff) / 255,
+                Double((v >> 8) & 0xff) / 255,
+                Double(v & 0xff) / 255)
+    }
+}

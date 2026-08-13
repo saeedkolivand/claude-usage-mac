@@ -7,6 +7,11 @@ struct RingGauge: View {
     let level: Level
     var lineWidth: CGFloat = 8
     var showsPercent = true
+    /// Overrides the threshold tint — the menu bar's mono and custom colour
+    /// modes. Nil, the only value anything else passes, keeps `level.tint`.
+    var tint: Color?
+
+    private var color: Color { tint ?? level.tint }
 
     private var fraction: CGFloat {
         guard let pct else { return 0 }
@@ -20,12 +25,12 @@ struct RingGauge: View {
                 // Strokes straddle the path, so without this inset the outer half
                 // spills past the frame and gets clipped by the container.
                 Circle()
-                    .stroke(level.tint.opacity(0.18), lineWidth: lineWidth)
+                    .stroke(color.opacity(0.18), lineWidth: lineWidth)
                     .padding(lineWidth / 2)
                 if pct != nil {
                     Circle()
                         .trim(from: 0, to: fraction)
-                        .stroke(level.tint,
+                        .stroke(color,
                                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .padding(lineWidth / 2)

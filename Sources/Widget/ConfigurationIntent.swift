@@ -43,6 +43,18 @@ struct UsageConfigIntent: WidgetConfigurationIntent {
     /// emptied everyone's choices in 0.3.2.
     @Parameter(title: "Refresh", optionsProvider: RefreshOptions())
     var refresh: String?
+
+    /// Which face this widget draws — `FaceStyle.label` strings, "Default"
+    /// being the standard look. A String for the registry-free reason above,
+    /// and additive like Refresh, so placed widgets survive it.
+    @Parameter(title: "Style", optionsProvider: StyleOptions())
+    var style: String?
+}
+
+struct StyleOptions: DynamicOptionsProvider {
+    func results() async throws -> [String] {
+        FaceStyle.allCases.map(\.label)
+    }
 }
 
 /// Fixed strings rather than an enum parameter, for the same reason the two

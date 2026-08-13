@@ -14,6 +14,8 @@ struct GeneralSettings: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var launchError: String?
     @State private var exportError: String?
+    @State private var statuslineInstalled = StatuslineInstaller.isInstalled()
+    @State private var statuslineError: String?
 
     var body: some View {
         Form {
@@ -67,6 +69,22 @@ struct GeneralSettings: View {
             }
 
             Section {
+                HStack {
+                    Button("Install Claude Code statusline", action: installStatusline)
+                        .disabled(statuslineInstalled)
+                    Button("Uninstall", action: uninstallStatusline)
+                        .disabled(!statuslineInstalled)
+                    Spacer()
+                }
+                if let statuslineError {
+                    Text(statuslineError).font(.caption).foregroundStyle(.red)
+                }
+                Text("Puts \"5h 34% | wk 70% | resets 2h 10m\" in Claude Code's statusline, updated on every poll. Writes ~/.claude/statusline-usage.sh and sets statusLine in ~/.claude/settings.json; an existing statusline is backed up first and restored on uninstall.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 TextField("User-Agent", text: $userAgent)
                 Text("The usage endpoint rate-limits clients that don't identify as Claude Code. Change this only if the version string goes stale.")
                     .font(.caption)
@@ -93,6 +111,28 @@ struct GeneralSettings: View {
             launchError = error.localizedDescription
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+    }
+
+    // MARK: - Statusline
+
+    private func installStatusline() {
+        do {
+            try StatuslineInstaller.install()
+            statuslineError = nil
+        } catch {
+            statuslineError = error.localizedDescription
+        }
+        statuslineInstalled = StatuslineInstaller.isInstalled()
+    }
+
+    private func uninstallStatusline() {
+        do {
+            try StatuslineInstaller.uninstall()
+            statuslineError = nil
+        } catch {
+            statuslineError = error.localizedDescription
+        }
+        statuslineInstalled = StatuslineInstaller.isInstalled()
     }
 
     // MARK: - Export
