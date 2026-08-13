@@ -78,13 +78,13 @@ enum Updater {
         // Detached for the same reason the staging above is: these block, and
         // the menu bar must not.
         await Task.detached(priority: .userInitiated) {
-            try? run("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+            _ = try? run("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
                      + "LaunchServices.framework/Support/lsregister", ["-f", bundle.path])
             // ponytail: restarting the widget host is the blunt version of what
             // re-adding a widget does by hand. launchd brings it straight back.
             // If it ever proves too heavy, drop it and document the manual
             // remove-and-re-add instead.
-            try? run("/usr/bin/killall", ["chronod"])
+            _ = try? run("/usr/bin/killall", ["chronod"])
         }.value
 
         progress("Restarting…")
@@ -132,7 +132,7 @@ enum Updater {
         let mount = scratch.appendingPathComponent("mount")
         try run("/usr/bin/hdiutil",
                 ["attach", dmg.path, "-nobrowse", "-readonly", "-mountpoint", mount.path])
-        defer { try? run("/usr/bin/hdiutil", ["detach", mount.path, "-quiet"]) }
+        defer { _ = try? run("/usr/bin/hdiutil", ["detach", mount.path, "-quiet"]) }
 
         // Found by extension rather than by name, so a renamed install still
         // recognises what is inside its own image.
@@ -152,7 +152,7 @@ enum Updater {
         // URLSession doesn't quarantine what it downloads, so this is usually a
         // no-op — but the cask clears the same flag in its postflight, and one
         // exec is cheaper than the "damaged, move to Trash" dialog it prevents.
-        try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged.path])
+        _ = try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged.path])
         return staged
     }
 
