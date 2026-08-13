@@ -257,6 +257,8 @@ struct UsageWidgetView: View {
             perModel(snapshot)
 
             VStack(spacing: 8) {
+                // Machine-scoped, unlike the account-wide rings above.
+                SectionLabel(text: "THIS MAC")
                 StatRow(label: "Today", tokens: snapshot.stats.todayTokens,
                         cost: snapshot.stats.todayCost)
                 Divider()

@@ -87,6 +87,7 @@ struct MenuView: View {
             MetricGauge(snapshot: snapshot, metric: .weekly, lineWidth: 9)
         }
         .frame(height: 118)
+        .frame(maxWidth: .infinity)
     }
 
     /// The projection, when there is one. Two polls of active use before it says
@@ -101,6 +102,7 @@ struct MenuView: View {
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
             .padding(.top, 8)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -141,6 +143,9 @@ struct MenuView: View {
 
     private func stats(_ snapshot: Snapshot) -> some View {
         VStack(spacing: 5) {
+            // Tokens and costs come from this machine's transcripts; only the
+            // rings above see the whole account. See CONTEXT.md.
+            SectionLabel(text: "THIS MAC")
             StatRow(label: "Today", tokens: snapshot.stats.todayTokens,
                     cost: snapshot.stats.todayCost)
             StatRow(label: "This week", tokens: snapshot.stats.weekTokens,
