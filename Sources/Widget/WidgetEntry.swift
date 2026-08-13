@@ -27,8 +27,15 @@ struct UsageEntry: TimelineEntry {
 }
 
 struct UsageProvider: AppIntentTimelineProvider {
+    /// The face this widget kind renders when Edit Widget hasn't picked one —
+    /// each gallery entry carries its own, so its preview and a freshly added
+    /// widget both wear the advertised look.
+    var style: FaceStyle = .standard
+
     func placeholder(in context: Context) -> UsageEntry {
-        UsageEntry(date: Date(), snapshot: .preview, project: nil, scopeLabel: nil)
+        var entry = UsageEntry(date: Date(), snapshot: .preview, project: nil, scopeLabel: nil)
+        entry.style = style
+        return entry
     }
 
     func snapshot(for configuration: UsageConfigIntent, in context: Context) async -> UsageEntry {
@@ -61,7 +68,10 @@ struct UsageProvider: AppIntentTimelineProvider {
 
     private func entry(for configuration: UsageConfigIntent) -> UsageEntry {
         var entry = scoped(for: configuration)
-        entry.style = FaceStyle(label: configuration.style)
+        // Same empty-as-unset treatment as the pickers in scoped(for:) — a
+        // cleared Style falls back to this kind's own face, not to Default.
+        let chosen = configuration.style.flatMap { $0.isEmpty ? nil : $0 }
+        entry.style = chosen.map { FaceStyle(label: $0) } ?? style
         return entry
     }
 
@@ -133,23 +143,78 @@ struct UsageWidgetEntryView: View {
     }
 }
 
+/// One gallery entry. Every kind shares the same intent and provider — see
+/// docs/adr/0001 — so a placed widget of any kind survives updates the same way,
+/// and the Style picker can still override the kind's default face.
+private func usageConfiguration(kind: String, style: FaceStyle, name: String,
+                                description: String) -> some WidgetConfiguration {
+    AppIntentConfiguration(kind: kind,
+                           intent: UsageConfigIntent.self,
+                           provider: UsageProvider(style: style)) { entry in
+        UsageWidgetEntryView(entry: entry)
+    }
+    .configurationDisplayName(name)
+    .description(description)
+    .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+}
+
+// Every kind below is frozen the moment a user places one: neither the kind
+// string nor the configuration type can change again. The original was a
+// StaticConfiguration until 0.3, and every widget placed before then is
+// permanently dead — WidgetKit answers its timeline request with "Intent
+// configuration is required but was not provided" instead of rendering, and
+// there is no supported migration. Parameter *types* are equally one-way: the
+// 0.3.1 → 0.3.2 ProfileEntity → String change made old selections unreadable,
+// so they silently came back nil.
+
 struct UsageWidget: Widget {
     var body: some WidgetConfiguration {
-        // Frozen: neither the kind nor the configuration type can change again.
-        // This was a StaticConfiguration until 0.3, and every widget placed
-        // before then is permanently dead — WidgetKit answers its timeline
-        // request with "Intent configuration is required but was not provided"
-        // instead of rendering, and there is no supported migration. Parameter
-        // *types* are equally one-way: the 0.3.1 → 0.3.2 ProfileEntity → String
-        // change made old selections unreadable, so they silently came back nil.
-        AppIntentConfiguration(kind: "com.saeedkolivand.claude-usage.widget",
-                               intent: UsageConfigIntent.self,
-                               provider: UsageProvider()) { entry in
-            UsageWidgetEntryView(entry: entry)
-        }
-        .configurationDisplayName("Claude Usage")
-        .description("Session and weekly limits, tokens, and estimated cost.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        usageConfiguration(kind: "com.saeedkolivand.claude-usage.widget",
+                           style: .standard, name: "Claude Usage",
+                           description: "Session and weekly limits, tokens, and estimated cost.")
+    }
+}
+
+// One struct per style rather than one parameterized struct: `Widget` requires
+// a parameterless `init()`, so the style can't be passed in.
+
+struct TerminalWidget: Widget {
+    var body: some WidgetConfiguration {
+        usageConfiguration(kind: "com.saeedkolivand.claude-usage.widget.terminal",
+                           style: .terminal, name: "Terminal",
+                           description: "Phosphor terminal readout of your Claude limits.")
+    }
+}
+
+struct SpeedometerWidget: Widget {
+    var body: some WidgetConfiguration {
+        usageConfiguration(kind: "com.saeedkolivand.claude-usage.widget.speedometer",
+                           style: .speedometer, name: "Speedometer",
+                           description: "Analog dials for the session and weekly windows.")
+    }
+}
+
+struct LCDWidget: Widget {
+    var body: some WidgetConfiguration {
+        usageConfiguration(kind: "com.saeedkolivand.claude-usage.widget.lcd",
+                           style: .lcd, name: "LCD",
+                           description: "Seven-segment readout of your Claude limits.")
+    }
+}
+
+struct GlassWidget: Widget {
+    var body: some WidgetConfiguration {
+        usageConfiguration(kind: "com.saeedkolivand.claude-usage.widget.glass",
+                           style: .glass, name: "Glass",
+                           description: "Frosted card with your limit rings.")
+    }
+}
+
+struct HeatmapWidget: Widget {
+    var body: some WidgetConfiguration {
+        usageConfiguration(kind: "com.saeedkolivand.claude-usage.widget.heatmap",
+                           style: .heatmap, name: "Heatmap",
+                           description: "Thirteen weeks of daily usage as a calendar grid.")
     }
 }
 
@@ -157,6 +222,11 @@ struct UsageWidget: Widget {
 struct ClaudeUsageWidgetBundle: WidgetBundle {
     var body: some Widget {
         UsageWidget()
+        TerminalWidget()
+        SpeedometerWidget()
+        LCDWidget()
+        GlassWidget()
+        HeatmapWidget()
     }
 }
 

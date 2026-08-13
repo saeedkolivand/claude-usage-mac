@@ -8,6 +8,7 @@ import SwiftUI
 /// palette, and still not Swift Charts — a grid of rectangles is the whole thing.
 struct Heatmap: View {
     let days: [DayUsage]
+    /// Cell height. Width stretches so the grid fills whatever row it's given.
     var box: CGFloat = 9
     var spacing: CGFloat = 2
     var tint: Color = Level.ok.tint
@@ -45,7 +46,8 @@ struct Heatmap: View {
                         ForEach(0..<7, id: \.self) { row in
                             RoundedRectangle(cornerRadius: 1.5)
                                 .fill(fill(grid[column][row]))
-                                .frame(width: box, height: box)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: box)
                         }
                     }
                 }
