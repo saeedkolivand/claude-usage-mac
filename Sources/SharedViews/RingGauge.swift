@@ -21,19 +21,24 @@ struct RingGauge: View {
     var body: some View {
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
+            // Apple's widget rings run ~8-10% of their diameter. `lineWidth` is
+            // a ceiling, not a promise: when a layout squeezes the ring (the
+            // large face after the THIS MAC label landed), the stroke thins
+            // with it instead of turning the ring into a donut.
+            let stroke = min(lineWidth, side * 0.09)
             ZStack {
                 // Strokes straddle the path, so without this inset the outer half
                 // spills past the frame and gets clipped by the container.
                 Circle()
-                    .stroke(color.opacity(0.18), lineWidth: lineWidth)
-                    .padding(lineWidth / 2)
+                    .stroke(color.opacity(0.18), lineWidth: stroke)
+                    .padding(stroke / 2)
                 if pct != nil {
                     Circle()
                         .trim(from: 0, to: fraction)
                         .stroke(color,
-                                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                                style: StrokeStyle(lineWidth: stroke, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                        .padding(lineWidth / 2)
+                        .padding(stroke / 2)
                 }
                 if showsPercent {
                     Text(Format.percent(pct))
